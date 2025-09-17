@@ -13,69 +13,39 @@ class AddMatchScreen extends StatefulWidget {
 
 class _AddMatchScreenState extends State<AddMatchScreen> {
   final _formKey = GlobalKey<FormState>();
-  // --- NEW: State variables for selected teams ---
   String? _selectedTeam1;
   String? _selectedTeam2;
   bool _isLoading = false;
 
   Future<void> _addMatch() async {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
-
-    // --- NEW: Validate that two different teams are selected ---
+    if (!_formKey.currentState!.validate()) return;
     if (_selectedTeam1 == _selectedTeam2) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please select two different teams.'), backgroundColor: Colors.red),
       );
       return;
     }
-
     setState(() => _isLoading = true);
-
     try {
-      final matchesDoc = await FirebaseFirestore.instance
-          .collection('matches')
-          .doc(widget.weekId)
-          .get();
-      
+      final matchesDoc = await FirebaseFirestore.instance.collection('matches').doc(widget.weekId).get();
       int nextGameId = 1;
       if (matchesDoc.exists && matchesDoc.data()!.containsKey('games')) {
-        final games = List<Map<String, dynamic>>.from(matchesDoc.data()!['games']);
-        nextGameId = games.length + 1;
+        nextGameId = (matchesDoc.data()!['games'] as List).length + 1;
       }
-
-      // --- MODIFIED: Create the game map without color fields ---
-      final newGame = {
-        'gameId': 'game$nextGameId',
-        'team1Name': _selectedTeam1,
-        'team2Name': _selectedTeam2,
-      };
-
-      await FirebaseFirestore.instance
-          .collection('matches')
-          .doc(widget.weekId)
-          .update({
+      final newGame = {'gameId': 'game$nextGameId', 'team1Name': _selectedTeam1, 'team2Name': _selectedTeam2};
+      await FirebaseFirestore.instance.collection('matches').doc(widget.weekId).update({
         'games': FieldValue.arrayUnion([newGame])
       });
-      
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Match added successfully!'), backgroundColor: Colors.green),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Match added successfully!'), backgroundColor: Colors.green));
         Navigator.of(context).pop();
       }
-
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to add match: $e'), backgroundColor: Colors.red),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to add match: $e'), backgroundColor: Colors.red));
       }
     } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -89,30 +59,26 @@ class _AddMatchScreenState extends State<AddMatchScreen> {
           key: _formKey,
           child: ListView(
             children: [
-              // --- NEW: Dropdown for Team 1 ---
+              // --- FIX: Use the keys from the new nflTeamsMap ---
               DropdownButtonFormField<String>(
                 value: _selectedTeam1,
                 decoration: const InputDecoration(labelText: 'Team 1'),
-                items: nflTeams.map((team) => DropdownMenuItem(value: team, child: Text(team))).toList(),
+                items: nflTeamsMap.keys.map((team) => DropdownMenuItem(value: team, child: Text(team))).toList(),
                 onChanged: (value) => setState(() => _selectedTeam1 = value),
                 validator: (value) => value == null ? 'Please select a team' : null,
               ),
               const SizedBox(height: 20),
-              // --- NEW: Dropdown for Team 2 ---
               DropdownButtonFormField<String>(
                 value: _selectedTeam2,
                 decoration: const InputDecoration(labelText: 'Team 2'),
-                items: nflTeams.map((team) => DropdownMenuItem(value: team, child: Text(team))).toList(),
+                items: nflTeamsMap.keys.map((team) => DropdownMenuItem(value: team, child: Text(team))).toList(),
                 onChanged: (value) => setState(() => _selectedTeam2 = value),
                 validator: (value) => value == null ? 'Please select a team' : null,
               ),
               const SizedBox(height: 30),
               _isLoading
                   ? const Center(child: CircularProgressIndicator())
-                  : ElevatedButton(
-                      onPressed: _addMatch,
-                      child: const Text('Add Match'),
-                    ),
+                  : ElevatedButton(onPressed: _addMatch, child: const Text('Add Match')),
             ],
           ),
         ),

@@ -7,6 +7,7 @@ import 'firebase_options.dart';
 import 'auth_screen.dart';
 import 'admin_screen.dart';
 import 'all_picks_screen.dart';
+import 'nfl_teams.dart'; // --- FIX: Added the missing import ---
 
 // --- Developer Backdoor Flag ---
 const bool kDebugBypassLogin = false;
@@ -152,7 +153,7 @@ class _PicksScreenState extends State<PicksScreen> {
     } catch (e) {
       // Handle error
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -173,7 +174,7 @@ class _PicksScreenState extends State<PicksScreen> {
     } catch (e) {
       // Handle error
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -183,9 +184,12 @@ class _PicksScreenState extends State<PicksScreen> {
       'displayName': _userEmail,
       _selectedWeekId!: _userPicks,
     }, SetOptions(merge: true));
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+
+    if(mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         content: Text('Picks saved!'), backgroundColor: Colors.green));
-    Navigator.of(context).pop();
+      Navigator.of(context).pop();
+    }
   }
 
   @override
@@ -229,9 +233,11 @@ class _PicksScreenState extends State<PicksScreen> {
                   stream: FirebaseFirestore.instance.collection('matches').doc(_selectedWeekId!).snapshots(),
                   builder: (context, snapshot) {
                     if (!snapshot.hasData) return const Center(child: Text('Loading matches...'));
+                    
                     final matchData = snapshot.data!.data() as Map<String, dynamic>;
                     final games = List<Map<String, dynamic>>.from(matchData['games']);
                     _isLocked = matchData['isLocked'];
+
                     if (_isLocked && _userPicks.isEmpty) {
                       return const Center(
                         child: Text('Picks for this week are locked!',
@@ -250,7 +256,7 @@ class _PicksScreenState extends State<PicksScreen> {
     );
   }
 
-  // --- FIX: Removed the 'color' properties from these function calls ---
+  // --- FIX: Helper functions are now correctly INSIDE the State class ---
   Widget _buildGameCard(Map<String, dynamic> game) {
     final gameId = game['gameId'];
     final selectedWinner = _userPicks[gameId];
@@ -284,15 +290,15 @@ class _PicksScreenState extends State<PicksScreen> {
     );
   }
 
-  // Helper widget for team icons (reusable)
+  // In main.dart, inside the _PicksScreenState class
+
 Widget _buildTeamIcon({
   required String teamName,
   required bool isSelected,
   required VoidCallback onTap,
 }) {
-  // Look up the team in our map to get the logo URL
   final team = nflTeamsMap[teamName];
-  final logoUrl = team?.logoUrl;
+  final logoAssetPath = team?.logoAssetPath; // Get the local asset path
 
   return GestureDetector(
     onTap: _isLocked ? null : onTap,
@@ -305,23 +311,18 @@ Widget _buildTeamIcon({
       ),
       child: Column(
         children: [
-          // --- NEW: Use Image.network to display the logo ---
-          if (logoUrl != null)
-            Image.network(
-              logoUrl,
-              height: 70, // Set a fixed height for the logo
-              width: 70,  // Set a fixed width for the logo
-              // Show a placeholder while the image loads
-              loadingBuilder: (context, child, progress) {
-                return progress == null ? child : const CircularProgressIndicator();
-              },
-              // Show a fallback icon if the image fails to load
+          // --- MODIFIED: Use Image.asset to display the local logo ---
+          if (logoAssetPath != null)
+            Image.asset(
+              logoAssetPath, // Use the asset path
+              height: 70,
+              width: 70,
+              // Show a fallback icon if the asset fails to load
               errorBuilder: (context, error, stackTrace) {
                 return const Icon(Icons.sports_football, color: Colors.grey, size: 70);
               },
             )
           else
-            // Fallback icon if the team name isn't found in our map
             const Icon(Icons.sports_football, color: Colors.grey, size: 70),
 
           const SizedBox(height: 4),
