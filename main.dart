@@ -105,7 +105,9 @@ class MainScreen extends StatelessWidget {
   }
 }
 
-// ========== Picks Screen ==========
+// In lib/main.dart
+
+// ========== Picks Screen (Corrected Build Logic) ==========
 class PicksScreen extends StatefulWidget {
   const PicksScreen({super.key});
   @override
@@ -114,7 +116,8 @@ class PicksScreen extends StatefulWidget {
 
 class _PicksScreenState extends State<PicksScreen> {
   Map<String, String> _userPicks = {};
-  bool _isLocked = false;
+  // We can remove the class-level _isLocked, as we'll get it from the stream
+  // bool _isLocked = false; 
   bool _isLoading = true;
   List<DropdownMenuItem<String>> _weekMenuItems = [];
   String? _selectedWeekId;
@@ -129,6 +132,7 @@ class _PicksScreenState extends State<PicksScreen> {
   }
 
   Future<void> _loadAvailableWeeks() async {
+    // This function is correct, no changes needed here.
     setState(() => _isLoading = true);
     try {
       final snapshot = await FirebaseFirestore.instance.collection('matches').get();
@@ -160,13 +164,10 @@ class _PicksScreenState extends State<PicksScreen> {
   }
 
   Future<void> _loadWeekData(String weekId) async {
+    // We only need to load the user's picks here now, not the lock status.
     setState(() => _isLoading = true);
     _userPicks = {};
     try {
-      final matchDoc = await FirebaseFirestore.instance.collection('matches').doc(weekId).get();
-      if (matchDoc.exists) {
-        if (mounted) setState(() => _isLocked = matchDoc.data()!['isLocked']);
-      }
       if (_userId != null) {
         final picksDoc = await FirebaseFirestore.instance.collection('picks').doc(_userId).get();
         if (picksDoc.exists && picksDoc.data()!.containsKey(weekId)) {
@@ -196,68 +197,79 @@ class _PicksScreenState extends State<PicksScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Make Your Picks'),
-        actions: [
-          if (_weekMenuItems.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12.0),
-              child: DropdownButton<String>(
-                value: _selectedWeekId,
-                items: _weekMenuItems,
-                onChanged: (newWeekId) {
-                  if (newWeekId != null) {
-                    setState(() => _selectedWeekId = newWeekId);
-                    _loadWeekData(newWeekId);
-                  }
-                },
-                dropdownColor: Colors.blueGrey[800],
-                style: const TextStyle(color: Colors.white, fontSize: 16),
-                underline: Container(),
-                icon: const Icon(Icons.arrow_drop_down, color: Colors.white),
-              ),
-            ),
-        ],
-      ),
-      floatingActionButton: (_userPicks.isNotEmpty && !_isLocked)
-          ? FloatingActionButton.extended(
-              onPressed: _savePicks,
-              label: const Text('Save Picks'),
-              icon: const Icon(Icons.save),
-            )
-          : null,
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _selectedWeekId == null
-              ? const Center(child: Text('No weeks available to pick.'))
-              : StreamBuilder<DocumentSnapshot>(
-                  stream: FirebaseFirestore.instance.collection('matches').doc(_selectedWeekId!).snapshots(),
-                  builder: (context, snapshot) {
-                    if (!snapshot.hasData) return const Center(child: Text('Loading matches...'));
-                    final matchData = snapshot.data!.data() as Map<String, dynamic>;
-                    final games = List<Map<String, dynamic>>.from(matchData['games']);
-                    _isLocked = matchData['isLocked'];
-                    if (_isLocked && _userPicks.isEmpty) {
-                      return const Center(
-                        child: Text('Picks for this week are locked!',
-                            style: TextStyle(fontSize: 20, color: Colors.red)),
-                      );
-                    }
-                    return ListView.builder(
+    // The main part of the screen handles loading and week selection...
+    if (_isLoading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    if (_selectedWeekId == null) {
+      return const Scaffold(body: Center(child: Text('No weeks available to pick.')));
+    }
+
+    // --- FIX: The StreamBuilder now wraps the Scaffold ---
+    // This ensures the FAB and body are built with the same, consistent data.
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance.collection('matches').doc(_selectedWeekId!).snapshots(),
+      builder: (context, snapshot) {
+        bool isLocked = true; // Default to locked to be safe
+        List<Map<String, dynamic>> games = [];
+
+        if (snapshot.hasData && snapshot.data!.exists) {
+          final matchData = snapshot.data!.data() as Map<String, dynamic>;
+          games = List<Map<String, dynamic>>.from(matchData['games'] ?? []);
+          isLocked = matchData['isLocked'] ?? true;
+        }
+
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('Make Your Picks'),
+            actions: [
+              if (_weekMenuItems.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                  child: DropdownButton<String>(
+                    value: _selectedWeekId,
+                    items: _weekMenuItems,
+                    onChanged: (newWeekId) {
+                      if (newWeekId != null) {
+                        setState(() => _selectedWeekId = newWeekId);
+                        _loadWeekData(newWeekId); // Load picks for the new week
+                      }
+                    },
+                    dropdownColor: Colors.blueGrey[800],
+                    style: const TextStyle(color: Colors.white, fontSize: 16),
+                    underline: Container(),
+                    icon: const Icon(Icons.arrow_drop_down, color: Colors.white),
+                  ),
+                ),
+            ],
+          ),
+          floatingActionButton: (_userPicks.isNotEmpty && !isLocked)
+              ? FloatingActionButton.extended(
+                  onPressed: _savePicks,
+                  label: const Text('Save Picks'),
+                  icon: const Icon(Icons.save),
+                )
+              : null,
+          body: (snapshot.connectionState == ConnectionState.waiting && games.isEmpty)
+              ? const Center(child: CircularProgressIndicator())
+              : (isLocked && _userPicks.isEmpty)
+                  ? const Center(
+                      child: Text('Picks for this week are locked!',
+                          style: TextStyle(fontSize: 20, color: Colors.red)),
+                    )
+                  : ListView.builder(
                       itemCount: games.length,
                       itemBuilder: (context, index) {
                         final game = games[index];
-                        return _buildGameCard(game);
+                        return _buildGameCard(game, isLocked); // Pass lock status down
                       },
-                    );
-                  },
-                ),
+                    ),
+        );
+      },
     );
   }
 
-  // --- THIS IS THE CORRECTED FUNCTION ---
-  Widget _buildGameCard(Map<String, dynamic> game) {
+  Widget _buildGameCard(Map<String, dynamic> game, bool isLocked) {
     final gameId = game['gameId'];
     final selectedWinner = _userPicks[gameId];
     return Card(
@@ -275,12 +287,14 @@ class _PicksScreenState extends State<PicksScreen> {
                   teamName: game['team1Name'],
                   isSelected: selectedWinner == game['team1Name'],
                   onTap: () => setState(() => _userPicks[gameId] = game['team1Name']),
+                  isLocked: isLocked,
                 ),
                 const Text('VS', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                 _buildTeamIcon(
                   teamName: game['team2Name'],
                   isSelected: selectedWinner == game['team2Name'],
                   onTap: () => setState(() => _userPicks[gameId] = game['team2Name']),
+                  isLocked: isLocked,
                 ),
               ],
             ),
@@ -294,11 +308,12 @@ class _PicksScreenState extends State<PicksScreen> {
     required String teamName,
     required bool isSelected,
     required VoidCallback onTap,
+    required bool isLocked,
   }) {
     final team = nflTeamsMap[teamName];
     final logoAssetPath = team?.logoAssetPath;
     return GestureDetector(
-      onTap: _isLocked ? null : onTap,
+      onTap: isLocked ? null : onTap,
       child: Container(
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
