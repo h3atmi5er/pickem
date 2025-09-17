@@ -8,26 +8,63 @@ import 'auth_screen.dart';
 import 'admin_screen.dart';
 import 'all_picks_screen.dart';
 import 'nfl_teams.dart';
+import 'loading_screen.dart'; // --- FIX: Import is now at the top ---
 
 // --- Developer Backdoor Flag ---
 const bool kDebugBypassLogin = false;
 
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   runApp(const MyApp());
 }
 
-class MyApp extends StatelessWidget {
+// --- MODIFIED: MyApp now manages the app's initialization state ---
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  bool _isInitialized = false;
+  bool _hasError = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeApp();
+  }
+
+  Future<void> _initializeApp() async {
+    try {
+      await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+      if (mounted) setState(() => _isInitialized = true);
+    } catch (e) {
+      if (mounted) setState(() => _hasError = true);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return const MaterialApp(
+    Widget home;
+    if (_hasError) {
+      home = const Scaffold(body: Center(child: Text('Error initializing app.')));
+    } else if (!_isInitialized) {
+      // Show the scrolling logo screen while initializing
+      home = const LoadingScreen();
+    } else {
+      // Once initialized, show the AuthGate
+      home = const AuthGate();
+    }
+
+    return MaterialApp(
       debugShowCheckedModeBanner: false,
-      home: AuthGate(),
+      home: home,
     );
   }
 }
+
 
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
@@ -105,9 +142,7 @@ class MainScreen extends StatelessWidget {
   }
 }
 
-// In lib/main.dart
-
-// ========== Picks Screen (Corrected Build Logic) ==========
+// ========== Picks Screen ==========
 class PicksScreen extends StatefulWidget {
   const PicksScreen({super.key});
   @override
@@ -116,8 +151,6 @@ class PicksScreen extends StatefulWidget {
 
 class _PicksScreenState extends State<PicksScreen> {
   Map<String, String> _userPicks = {};
-  // We can remove the class-level _isLocked, as we'll get it from the stream
-  // bool _isLocked = false; 
   bool _isLoading = true;
   List<DropdownMenuItem<String>> _weekMenuItems = [];
   String? _selectedWeekId;
@@ -132,7 +165,6 @@ class _PicksScreenState extends State<PicksScreen> {
   }
 
   Future<void> _loadAvailableWeeks() async {
-    // This function is correct, no changes needed here.
     setState(() => _isLoading = true);
     try {
       final snapshot = await FirebaseFirestore.instance.collection('matches').get();
@@ -147,6 +179,13 @@ class _PicksScreenState extends State<PicksScreen> {
           child: Text(weekName),
         );
       }).toList();
+
+      weeks.sort((a, b) {
+        final weekNumA = int.tryParse(a.value!.replaceAll('week_', '')) ?? 0;
+        final weekNumB = int.tryParse(b.value!.replaceAll('week_', '')) ?? 0;
+        return weekNumA.compareTo(weekNumB);
+      });
+
       if (mounted) {
         setState(() {
           _weekMenuItems = weeks;
@@ -154,7 +193,7 @@ class _PicksScreenState extends State<PicksScreen> {
         });
       }
       if (_selectedWeekId != null) {
-        await _loadWeekData(_selectedWeekId!);
+        await _loadUserPicksForWeek(_selectedWeekId!);
       }
     } catch (e) {
       // Handle error
@@ -163,15 +202,16 @@ class _PicksScreenState extends State<PicksScreen> {
     }
   }
 
-  Future<void> _loadWeekData(String weekId) async {
-    // We only need to load the user's picks here now, not the lock status.
+  Future<void> _loadUserPicksForWeek(String weekId) async {
     setState(() => _isLoading = true);
     _userPicks = {};
     try {
       if (_userId != null) {
         final picksDoc = await FirebaseFirestore.instance.collection('picks').doc(_userId).get();
         if (picksDoc.exists && picksDoc.data()!.containsKey(weekId)) {
-          if (mounted) setState(() => _userPicks = Map<String, String>.from(picksDoc.data()![weekId]));
+          if (mounted) {
+            setState(() => _userPicks = Map<String, String>.from(picksDoc.data()![weekId]));
+          }
         }
       }
     } catch (e) {
@@ -197,27 +237,29 @@ class _PicksScreenState extends State<PicksScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // The main part of the screen handles loading and week selection...
     if (_isLoading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     if (_selectedWeekId == null) {
-      return const Scaffold(body: Center(child: Text('No weeks available to pick.')));
+      return Scaffold(
+        appBar: AppBar(title: const Text('Make Your Picks')),
+        body: const Center(child: Text('No weeks have been created by the admin yet.'))
+      );
     }
 
-    // --- FIX: The StreamBuilder now wraps the Scaffold ---
-    // This ensures the FAB and body are built with the same, consistent data.
     return StreamBuilder<DocumentSnapshot>(
       stream: FirebaseFirestore.instance.collection('matches').doc(_selectedWeekId!).snapshots(),
       builder: (context, snapshot) {
-        bool isLocked = true; // Default to locked to be safe
-        List<Map<String, dynamic>> games = [];
-
-        if (snapshot.hasData && snapshot.data!.exists) {
-          final matchData = snapshot.data!.data() as Map<String, dynamic>;
-          games = List<Map<String, dynamic>>.from(matchData['games'] ?? []);
-          isLocked = matchData['isLocked'] ?? true;
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(body: Center(child: CircularProgressIndicator()));
         }
+        if (!snapshot.hasData || !snapshot.data!.exists) {
+          return Scaffold(appBar: AppBar(title: const Text('Error')), body: const Center(child: Text('This week could not be found.')));
+        }
+
+        final matchData = snapshot.data!.data() as Map<String, dynamic>;
+        final games = List<Map<String, dynamic>>.from(matchData['games'] ?? []);
+        final isLocked = matchData['isLocked'] ?? true;
 
         return Scaffold(
           appBar: AppBar(
@@ -232,7 +274,7 @@ class _PicksScreenState extends State<PicksScreen> {
                     onChanged: (newWeekId) {
                       if (newWeekId != null) {
                         setState(() => _selectedWeekId = newWeekId);
-                        _loadWeekData(newWeekId); // Load picks for the new week
+                        _loadUserPicksForWeek(newWeekId);
                       }
                     },
                     dropdownColor: Colors.blueGrey[800],
@@ -250,18 +292,18 @@ class _PicksScreenState extends State<PicksScreen> {
                   icon: const Icon(Icons.save),
                 )
               : null,
-          body: (snapshot.connectionState == ConnectionState.waiting && games.isEmpty)
-              ? const Center(child: CircularProgressIndicator())
-              : (isLocked && _userPicks.isEmpty)
-                  ? const Center(
-                      child: Text('Picks for this week are locked!',
-                          style: TextStyle(fontSize: 20, color: Colors.red)),
-                    )
+          body: (isLocked && _userPicks.isEmpty)
+              ? const Center(
+                  child: Text('Picks for this week are locked!',
+                      style: TextStyle(fontSize: 20, color: Colors.red)),
+                )
+              : games.isEmpty
+                  ? const Center(child: Text('The admin has not added any matches for this week yet.'))
                   : ListView.builder(
                       itemCount: games.length,
                       itemBuilder: (context, index) {
                         final game = games[index];
-                        return _buildGameCard(game, isLocked); // Pass lock status down
+                        return _buildGameCard(game, isLocked);
                       },
                     ),
         );
