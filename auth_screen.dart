@@ -1,6 +1,8 @@
 // lib/auth_screen.dart
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package.cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
@@ -10,38 +12,56 @@ class AuthScreen extends StatefulWidget {
 }
 
 class _AuthScreenState extends State<AuthScreen> {
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
+  // ... (Your existing controllers and functions for email/password)
 
-  Future<void> _signUp() async {
+  // --- NEW: Google Sign-In Logic ---
+  Future<void> _signInWithGoogle() async {
     try {
-      await FirebaseAuth.instance.createUserWithEmailAndPassword(
-        email: _emailController.text,
-        password: _passwordController.text,
+      // Trigger the authentication flow
+      final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
+      if (googleUser == null) return; // The user canceled the sign-in
+
+      // Obtain the auth details from the request
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+
+      // Create a new credential
+      final OAuthCredential credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
       );
-      // On success, the AuthGate will handle navigation
-    } on FirebaseAuthException catch (e) {
-      // Show an error message
+
+      // Once signed in, return the UserCredential
+      final UserCredential userCredential =
+          await FirebaseAuth.instance.signInWithCredential(credential);
+
+      // After signing in, create a user document in Firestore
+      if (userCredential.user != null) {
+        await _createUserDocument(userCredential.user!);
+      }
+    } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.message ?? 'An error occurred')),
+        SnackBar(content: Text('Failed to sign in with Google: $e')),
       );
     }
   }
 
-  Future<void> _login() async {
-    try {
-      await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: _emailController.text,
-        password: _passwordController.text,
-      );
-      // On success, the AuthGate will handle navigation
-    } on FirebaseAuthException catch (e) {
-      // Show an error message
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.message ?? 'An error occurred')),
-      );
+  // --- NEW: Helper to create user document on first sign-in ---
+  Future<void> _createUserDocument(User user) async {
+    final userDocRef =
+        FirebaseFirestore.instance.collection('users').doc(user.uid);
+    final doc = await userDocRef.get();
+
+    // Only create the document if it doesn't already exist
+    if (!doc.exists) {
+      userDocRef.set({
+        'email': user.email,
+        'displayName': user.displayName,
+        'role': 'user', // Assign 'user' role by default
+        'createdAt': FieldValue.serverTimestamp(),
+      });
     }
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -52,28 +72,26 @@ class _AuthScreenState extends State<AuthScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            TextField(
-              controller: _emailController,
-              decoration: const InputDecoration(labelText: 'Email'),
-              keyboardType: TextInputType.emailAddress,
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _passwordController,
-              decoration: const InputDecoration(labelText: 'Password'),
-              obscureText: true,
-            ),
+            // ... (Your existing TextFields and email/password buttons)
+
             const SizedBox(height: 20),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                ElevatedButton(onPressed: _login, child: const Text('Login')),
-                ElevatedButton(onPressed: _signUp, child: const Text('Sign Up')),
-              ],
-            )
+            const Divider(),
+            const SizedBox(height: 20),
+
+            // --- NEW: Google Sign-In Button ---
+            ElevatedButton.icon(
+              icon: const Icon(Icons.g_mobiledata), // You can use a proper Google logo asset here
+              label: const Text('Sign in with Google'),
+              onPressed: _signInWithGoogle,
+              style: ElevatedButton.styleFrom(
+                minimumSize: const Size(double.infinity, 50),
+              ),
+            ),
           ],
         ),
       ),
     );
   }
+  // Make sure to also include your existing _emailController, _passwordController,
+  // _signUp, and _login methods from your original file.
 }
