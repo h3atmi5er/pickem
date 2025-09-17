@@ -5,7 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'firebase_options.dart';
 import 'auth_screen.dart';
-import 'admin_screen.dart'; // Import new screens
+import 'admin_screen.dart';
 import 'all_picks_screen.dart';
 
 // --- Developer Backdoor Flag ---
@@ -56,24 +56,18 @@ class MainScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Pick \'em'),
         actions: [
-          // --- Secure Admin Button ---
           if (userId != null)
             FutureBuilder<DocumentSnapshot>(
-              future:
-                  FirebaseFirestore.instance.collection('users').doc(userId).get(),
+              future: FirebaseFirestore.instance.collection('users').doc(userId).get(),
               builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.done &&
-                    snapshot.hasData) {
+                if (snapshot.connectionState == ConnectionState.done && snapshot.hasData) {
                   final data = snapshot.data!.data() as Map<String, dynamic>?;
                   final isAdmin = data?['role'] == 'admin';
-
                   if (isAdmin) {
                     return IconButton(
                       icon: const Icon(Icons.admin_panel_settings),
-                      onPressed: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (_) => const AdminScreen())),
+                      onPressed: () => Navigator.push(context,
+                          MaterialPageRoute(builder: (_) => const AdminScreen())),
                     );
                   }
                 }
@@ -86,7 +80,6 @@ class MainScreen extends StatelessWidget {
           ),
         ],
       ),
-      // --- FIX: Restored the body with navigation buttons ---
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -119,12 +112,9 @@ class PicksScreen extends StatefulWidget {
 }
 
 class _PicksScreenState extends State<PicksScreen> {
-  // State variables
   Map<String, String> _userPicks = {};
   bool _isLocked = false;
   bool _isLoading = true;
-
-  // New state variables for week selection
   List<DropdownMenuItem<String>> _weekMenuItems = [];
   String? _selectedWeekId;
 
@@ -137,31 +127,25 @@ class _PicksScreenState extends State<PicksScreen> {
     _loadAvailableWeeks();
   }
 
-  // --- NEW: Fetches all available weeks from Firestore to populate the dropdown ---
   Future<void> _loadAvailableWeeks() async {
     setState(() => _isLoading = true);
     try {
       final snapshot = await FirebaseFirestore.instance.collection('matches').get();
       if (snapshot.docs.isEmpty) {
-        // Handle case where no matches are available at all
         setState(() => _isLoading = false);
         return;
       }
-
       final weeks = snapshot.docs.map((doc) {
         final weekName = (doc.data())['weekName'] ?? 'Unnamed Week';
         return DropdownMenuItem<String>(
-          value: doc.id, // e.g., 'week_1'
-          child: Text(weekName), // e.g., 'Week 1'
+          value: doc.id,
+          child: Text(weekName),
         );
       }).toList();
-      
       setState(() {
         _weekMenuItems = weeks;
-        _selectedWeekId = weeks.first.value; // Select the first week by default
+        _selectedWeekId = weeks.first.value;
       });
-
-      // After finding the weeks, load the data for the default selected week
       if (_selectedWeekId != null) {
         await _loadWeekData(_selectedWeekId!);
       }
@@ -172,19 +156,14 @@ class _PicksScreenState extends State<PicksScreen> {
     }
   }
 
-  // --- MODIFIED: Loads data for a specific week ---
   Future<void> _loadWeekData(String weekId) async {
     setState(() => _isLoading = true);
-    
-    // Reset picks for the new week
     _userPicks = {};
-
     try {
       final matchDoc = await FirebaseFirestore.instance.collection('matches').doc(weekId).get();
       if (matchDoc.exists) {
         setState(() => _isLocked = matchDoc.data()!['isLocked']);
       }
-
       if (_userId != null) {
         final picksDoc = await FirebaseFirestore.instance.collection('picks').doc(_userId).get();
         if (picksDoc.exists && picksDoc.data()!.containsKey(weekId)) {
@@ -198,15 +177,12 @@ class _PicksScreenState extends State<PicksScreen> {
     }
   }
 
-  // --- MODIFIED: Saves picks for a specific week ---
   Future<void> _savePicks() async {
     if (_userId == null || _selectedWeekId == null) return;
-    
     await FirebaseFirestore.instance.collection('picks').doc(_userId).set({
       'displayName': _userEmail,
-      _selectedWeekId!: _userPicks, // Use the selected week ID as the key
+      _selectedWeekId!: _userPicks,
     }, SetOptions(merge: true));
-
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         content: Text('Picks saved!'), backgroundColor: Colors.green));
     Navigator.of(context).pop();
@@ -217,7 +193,6 @@ class _PicksScreenState extends State<PicksScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Make Your Picks'),
-        // --- NEW: DropdownButton for week selection ---
         actions: [
           if (_weekMenuItems.isNotEmpty)
             Padding(
@@ -233,7 +208,7 @@ class _PicksScreenState extends State<PicksScreen> {
                 },
                 dropdownColor: Colors.blueGrey[800],
                 style: const TextStyle(color: Colors.white, fontSize: 16),
-                underline: Container(), // Hides the default underline
+                underline: Container(),
                 icon: const Icon(Icons.arrow_drop_down, color: Colors.white),
               ),
             ),
@@ -254,18 +229,15 @@ class _PicksScreenState extends State<PicksScreen> {
                   stream: FirebaseFirestore.instance.collection('matches').doc(_selectedWeekId!).snapshots(),
                   builder: (context, snapshot) {
                     if (!snapshot.hasData) return const Center(child: Text('Loading matches...'));
-                    
                     final matchData = snapshot.data!.data() as Map<String, dynamic>;
                     final games = List<Map<String, dynamic>>.from(matchData['games']);
                     _isLocked = matchData['isLocked'];
-
                     if (_isLocked && _userPicks.isEmpty) {
-                      return Center(
+                      return const Center(
                         child: Text('Picks for this week are locked!',
                             style: TextStyle(fontSize: 20, color: Colors.red)),
                       );
                     }
-
                     return ListView.builder(
                       itemCount: games.length,
                       itemBuilder: (context, index) {
@@ -278,11 +250,10 @@ class _PicksScreenState extends State<PicksScreen> {
     );
   }
 
-  // Helper widget to build a card for each game (no changes here)
+  // --- FIX: Removed the 'color' properties from these function calls ---
   Widget _buildGameCard(Map<String, dynamic> game) {
     final gameId = game['gameId'];
     final selectedWinner = _userPicks[gameId];
-
     return Card(
       margin: const EdgeInsets.all(12),
       child: Padding(
@@ -296,14 +267,12 @@ class _PicksScreenState extends State<PicksScreen> {
               children: [
                 _buildTeamIcon(
                   teamName: game['team1Name'],
-                  color: Color(int.parse('0xFF${game['team1Color']}')),
                   isSelected: selectedWinner == game['team1Name'],
                   onTap: () => setState(() => _userPicks[gameId] = game['team1Name']),
                 ),
                 const Text('VS', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                 _buildTeamIcon(
                   teamName: game['team2Name'],
-                  color: Color(int.parse('0xFF${game['team2Color']}')),
                   isSelected: selectedWinner == game['team2Name'],
                   onTap: () => setState(() => _userPicks[gameId] = game['team2Name']),
                 ),
@@ -315,16 +284,20 @@ class _PicksScreenState extends State<PicksScreen> {
     );
   }
 
-  // Helper widget for team icons (reusable) (no changes here)
-  Widget _buildTeamIcon({
+  // Helper widget for team icons (reusable)
+Widget _buildTeamIcon({
   required String teamName,
-  // required Color color, // REMOVED
   required bool isSelected,
   required VoidCallback onTap,
 }) {
+  // Look up the team in our map to get the logo URL
+  final team = nflTeamsMap[teamName];
+  final logoUrl = team?.logoUrl;
+
   return GestureDetector(
     onTap: _isLocked ? null : onTap,
     child: Container(
+      padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         border: Border.all(
             color: isSelected ? Colors.green : Colors.transparent, width: 4),
@@ -332,16 +305,32 @@ class _PicksScreenState extends State<PicksScreen> {
       ),
       child: Column(
         children: [
-          // --- MODIFIED: Use a default color for the icon ---
-          Icon(Icons.sports_football, color: Colors.grey[700], size: 70),
+          // --- NEW: Use Image.network to display the logo ---
+          if (logoUrl != null)
+            Image.network(
+              logoUrl,
+              height: 70, // Set a fixed height for the logo
+              width: 70,  // Set a fixed width for the logo
+              // Show a placeholder while the image loads
+              loadingBuilder: (context, child, progress) {
+                return progress == null ? child : const CircularProgressIndicator();
+              },
+              // Show a fallback icon if the image fails to load
+              errorBuilder: (context, error, stackTrace) {
+                return const Icon(Icons.sports_football, color: Colors.grey, size: 70);
+              },
+            )
+          else
+            // Fallback icon if the team name isn't found in our map
+            const Icon(Icons.sports_football, color: Colors.grey, size: 70),
+
           const SizedBox(height: 4),
-          // Use a SizedBox to constrain the width and allow text wrapping
           SizedBox(
             width: 100,
             child: Text(
               teamName,
               textAlign: TextAlign.center,
-              maxLines: 2, // Allow team names to wrap to a second line
+              maxLines: 2,
             ),
           ),
         ],
