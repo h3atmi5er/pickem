@@ -7,7 +7,7 @@ import 'firebase_options.dart';
 import 'auth_screen.dart';
 import 'admin_screen.dart';
 import 'all_picks_screen.dart';
-import 'nfl_teams.dart'; // --- FIX: Added the missing import ---
+import 'nfl_teams.dart';
 
 // --- Developer Backdoor Flag ---
 const bool kDebugBypassLogin = false;
@@ -45,7 +45,7 @@ class AuthGate extends StatelessWidget {
   }
 }
 
-// ========== Main Screen (Updated with Correct Body) ==========
+// ========== Main Screen ==========
 class MainScreen extends StatelessWidget {
   const MainScreen({super.key});
 
@@ -105,7 +105,7 @@ class MainScreen extends StatelessWidget {
   }
 }
 
-// ========== Picks Screen (Rebuilt for Multiple Weeks) ==========
+// ========== Picks Screen ==========
 class PicksScreen extends StatefulWidget {
   const PicksScreen({super.key});
   @override
@@ -133,7 +133,7 @@ class _PicksScreenState extends State<PicksScreen> {
     try {
       final snapshot = await FirebaseFirestore.instance.collection('matches').get();
       if (snapshot.docs.isEmpty) {
-        setState(() => _isLoading = false);
+        if (mounted) setState(() => _isLoading = false);
         return;
       }
       final weeks = snapshot.docs.map((doc) {
@@ -143,10 +143,12 @@ class _PicksScreenState extends State<PicksScreen> {
           child: Text(weekName),
         );
       }).toList();
-      setState(() {
-        _weekMenuItems = weeks;
-        _selectedWeekId = weeks.first.value;
-      });
+      if (mounted) {
+        setState(() {
+          _weekMenuItems = weeks;
+          _selectedWeekId = weeks.first.value;
+        });
+      }
       if (_selectedWeekId != null) {
         await _loadWeekData(_selectedWeekId!);
       }
@@ -163,12 +165,12 @@ class _PicksScreenState extends State<PicksScreen> {
     try {
       final matchDoc = await FirebaseFirestore.instance.collection('matches').doc(weekId).get();
       if (matchDoc.exists) {
-        setState(() => _isLocked = matchDoc.data()!['isLocked']);
+        if (mounted) setState(() => _isLocked = matchDoc.data()!['isLocked']);
       }
       if (_userId != null) {
         final picksDoc = await FirebaseFirestore.instance.collection('picks').doc(_userId).get();
         if (picksDoc.exists && picksDoc.data()!.containsKey(weekId)) {
-          setState(() => _userPicks = Map<String, String>.from(picksDoc.data()![weekId]));
+          if (mounted) setState(() => _userPicks = Map<String, String>.from(picksDoc.data()![weekId]));
         }
       }
     } catch (e) {
@@ -185,7 +187,7 @@ class _PicksScreenState extends State<PicksScreen> {
       _selectedWeekId!: _userPicks,
     }, SetOptions(merge: true));
 
-    if(mounted) {
+    if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         content: Text('Picks saved!'), backgroundColor: Colors.green));
       Navigator.of(context).pop();
@@ -233,11 +235,9 @@ class _PicksScreenState extends State<PicksScreen> {
                   stream: FirebaseFirestore.instance.collection('matches').doc(_selectedWeekId!).snapshots(),
                   builder: (context, snapshot) {
                     if (!snapshot.hasData) return const Center(child: Text('Loading matches...'));
-                    
                     final matchData = snapshot.data!.data() as Map<String, dynamic>;
                     final games = List<Map<String, dynamic>>.from(matchData['games']);
                     _isLocked = matchData['isLocked'];
-
                     if (_isLocked && _userPicks.isEmpty) {
                       return const Center(
                         child: Text('Picks for this week are locked!',
@@ -256,7 +256,7 @@ class _PicksScreenState extends State<PicksScreen> {
     );
   }
 
-  // --- FIX: Helper functions are now correctly INSIDE the State class ---
+  // --- THIS IS THE CORRECTED FUNCTION ---
   Widget _buildGameCard(Map<String, dynamic> game) {
     final gameId = game['gameId'];
     final selectedWinner = _userPicks[gameId];
@@ -290,52 +290,47 @@ class _PicksScreenState extends State<PicksScreen> {
     );
   }
 
-  // In main.dart, inside the _PicksScreenState class
-
-Widget _buildTeamIcon({
-  required String teamName,
-  required bool isSelected,
-  required VoidCallback onTap,
-}) {
-  final team = nflTeamsMap[teamName];
-  final logoAssetPath = team?.logoAssetPath; // Get the local asset path
-
-  return GestureDetector(
-    onTap: _isLocked ? null : onTap,
-    child: Container(
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        border: Border.all(
-            color: isSelected ? Colors.green : Colors.transparent, width: 4),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        children: [
-          // --- MODIFIED: Use Image.asset to display the local logo ---
-          if (logoAssetPath != null)
-            Image.asset(
-              logoAssetPath, // Use the asset path
-              height: 70,
-              width: 70,
-              // Show a fallback icon if the asset fails to load
-              errorBuilder: (context, error, stackTrace) {
-                return const Icon(Icons.sports_football, color: Colors.grey, size: 70);
-              },
-            )
-          else
-            const Icon(Icons.sports_football, color: Colors.grey, size: 70),
-
-          const SizedBox(height: 4),
-          SizedBox(
-            width: 100,
-            child: Text(
-              teamName,
-              textAlign: TextAlign.center,
-              maxLines: 2,
+  Widget _buildTeamIcon({
+    required String teamName,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    final team = nflTeamsMap[teamName];
+    final logoAssetPath = team?.logoAssetPath;
+    return GestureDetector(
+      onTap: _isLocked ? null : onTap,
+      child: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          border: Border.all(
+              color: isSelected ? Colors.green : Colors.transparent, width: 4),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          children: [
+            if (logoAssetPath != null)
+              Image.asset(
+                logoAssetPath,
+                height: 70,
+                width: 70,
+                errorBuilder: (context, error, stackTrace) {
+                  return const Icon(Icons.sports_football, color: Colors.grey, size: 70);
+                },
+              )
+            else
+              const Icon(Icons.sports_football, color: Colors.grey, size: 70),
+            const SizedBox(height: 4),
+            SizedBox(
+              width: 100,
+              child: Text(
+                teamName,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
-    ),
-  );
+    );
+  }
 }

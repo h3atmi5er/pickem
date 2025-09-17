@@ -75,10 +75,21 @@ class _AllPicksScreenState extends State<AllPicksScreen> {
               : StreamBuilder<DocumentSnapshot>(
                   stream: FirebaseFirestore.instance.collection('matches').doc(_selectedWeekId!).snapshots(),
                   builder: (context, matchSnapshot) {
-                    if (!matchSnapshot.hasData) return const Center(child: CircularProgressIndicator());
+                    // --- FIX: Added checks for loading and data existence ---
+                    if (matchSnapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    if (!matchSnapshot.hasData || !matchSnapshot.data!.exists) {
+                      return const Center(child: Text('This week has no matches scheduled.'));
+                    }
                     
                     final matchData = matchSnapshot.data!.data() as Map<String, dynamic>;
                     final List<dynamic> games = matchData['games'] ?? [];
+
+                    // If there are no games, display a clear message
+                    if (games.isEmpty) {
+                      return const Center(child: Text('No matches have been added for this week yet.'));
+                    }
 
                     return StreamBuilder<QuerySnapshot>(
                       stream: FirebaseFirestore.instance.collection('picks').snapshots(),
@@ -99,8 +110,6 @@ class _AllPicksScreenState extends State<AllPicksScreen> {
                               final gameData = game as Map<String, dynamic>;
                               final gameId = gameData['gameId'];
                               final userPick = weekPicksMap[gameId] ?? 'No Pick';
-                              
-                              // --- THIS IS THE ONLY LINE THAT CHANGED ---
                               final gameNumber = gameId.replaceAll('game', '');
                               
                               return Padding(
