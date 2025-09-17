@@ -10,19 +10,14 @@ class AddMatchScreen extends StatefulWidget {
 }
 
 class _AddMatchScreenState extends State<AddMatchScreen> {
-  // A key to identify and validate the form
   final _formKey = GlobalKey<FormState>();
-
-  // Controllers to read the text from the input fields
   final _team1NameController = TextEditingController();
   final _team1ColorController = TextEditingController();
   final _team2NameController = TextEditingController();
   final _team2ColorController = TextEditingController();
   bool _isLoading = false;
 
-  // The function that handles saving the match to Firestore
   Future<void> _addMatch() async {
-    // First, validate the form to make sure all fields are filled out
     if (!_formKey.currentState!.validate()) {
       return;
     }
@@ -30,7 +25,6 @@ class _AddMatchScreenState extends State<AddMatchScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // Get the current list of games to figure out the ID for the new game
       final matchesDoc = await FirebaseFirestore.instance
           .collection('matches')
           .doc('current_week')
@@ -39,10 +33,9 @@ class _AddMatchScreenState extends State<AddMatchScreen> {
       int nextGameId = 1;
       if (matchesDoc.exists && matchesDoc.data()!.containsKey('games')) {
         final games = List<Map<String, dynamic>>.from(matchesDoc.data()!['games']);
-        nextGameId = games.length + 1; // If there are 2 games, this will be game3
+        nextGameId = games.length + 1;
       }
 
-      // Create a map with the new game's data
       final newGame = {
         'gameId': 'game$nextGameId',
         'team1Name': _team1NameController.text.trim(),
@@ -51,7 +44,6 @@ class _AddMatchScreenState extends State<AddMatchScreen> {
         'team2Color': _team2ColorController.text.trim(),
       };
 
-      // Use FieldValue.arrayUnion to add the new game to the 'games' array in Firestore
       await FirebaseFirestore.instance
           .collection('matches')
           .doc('current_week')
@@ -59,7 +51,6 @@ class _AddMatchScreenState extends State<AddMatchScreen> {
         'games': FieldValue.arrayUnion([newGame])
       });
       
-      // If successful, show a confirmation and go back to the previous screen
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Match added successfully!'), backgroundColor: Colors.green),
@@ -68,14 +59,12 @@ class _AddMatchScreenState extends State<AddMatchScreen> {
       }
 
     } catch (e) {
-      // If something goes wrong, show an error message
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to add match: $e'), backgroundColor: Colors.red),
         );
       }
     } finally {
-      // Make sure to stop the loading indicator
       if (mounted) {
         setState(() => _isLoading = false);
       }
@@ -92,7 +81,6 @@ class _AddMatchScreenState extends State<AddMatchScreen> {
           key: _formKey,
           child: ListView(
             children: [
-              // Form fields for each piece of information
               TextFormField(
                 controller: _team1NameController,
                 decoration: const InputDecoration(labelText: 'Team 1 Name'),
@@ -100,4 +88,31 @@ class _AddMatchScreenState extends State<AddMatchScreen> {
               ),
               TextFormField(
                 controller: _team1ColorController,
-                decoration: const InputDecoration(labelText: 'Team 1 Hex Color (e.g., F4
+                decoration: const InputDecoration(labelText: 'Team 1 Hex Color (e.g., F44336)'),
+                validator: (value) => value!.isEmpty ? 'Please enter a hex color' : null,
+              ),
+              const SizedBox(height: 20),
+              TextFormField(
+                controller: _team2NameController,
+                decoration: const InputDecoration(labelText: 'Team 2 Name'),
+                validator: (value) => value!.isEmpty ? 'Please enter a name' : null,
+              ),
+              TextFormField(
+                controller: _team2ColorController,
+                decoration: const InputDecoration(labelText: 'Team 2 Hex Color (e.g., 2196F3)'),
+                validator: (value) => value!.isEmpty ? 'Please enter a hex color' : null,
+              ),
+              const SizedBox(height: 30),
+              _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : ElevatedButton(
+                      onPressed: _addMatch,
+                      child: const Text('Add Match'),
+                    ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
