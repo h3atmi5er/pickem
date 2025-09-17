@@ -1,9 +1,11 @@
 // lib/add_match_screen.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'nfl_teams.dart'; // Import the new teams list
 
 class AddMatchScreen extends StatefulWidget {
-  const AddMatchScreen({super.key});
+  final String weekId;
+  const AddMatchScreen({super.key, required this.weekId});
 
   @override
   State<AddMatchScreen> createState() => _AddMatchScreenState();
@@ -11,14 +13,21 @@ class AddMatchScreen extends StatefulWidget {
 
 class _AddMatchScreenState extends State<AddMatchScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _team1NameController = TextEditingController();
-  final _team1ColorController = TextEditingController();
-  final _team2NameController = TextEditingController();
-  final _team2ColorController = TextEditingController();
+  // --- NEW: State variables for selected teams ---
+  String? _selectedTeam1;
+  String? _selectedTeam2;
   bool _isLoading = false;
 
   Future<void> _addMatch() async {
     if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    // --- NEW: Validate that two different teams are selected ---
+    if (_selectedTeam1 == _selectedTeam2) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select two different teams.'), backgroundColor: Colors.red),
+      );
       return;
     }
 
@@ -27,7 +36,7 @@ class _AddMatchScreenState extends State<AddMatchScreen> {
     try {
       final matchesDoc = await FirebaseFirestore.instance
           .collection('matches')
-          .doc('current_week')
+          .doc(widget.weekId)
           .get();
       
       int nextGameId = 1;
@@ -36,17 +45,16 @@ class _AddMatchScreenState extends State<AddMatchScreen> {
         nextGameId = games.length + 1;
       }
 
+      // --- MODIFIED: Create the game map without color fields ---
       final newGame = {
         'gameId': 'game$nextGameId',
-        'team1Name': _team1NameController.text.trim(),
-        'team1Color': _team1ColorController.text.trim(),
-        'team2Name': _team2NameController.text.trim(),
-        'team2Color': _team2ColorController.text.trim(),
+        'team1Name': _selectedTeam1,
+        'team2Name': _selectedTeam2,
       };
 
       await FirebaseFirestore.instance
           .collection('matches')
-          .doc('current_week')
+          .doc(widget.weekId)
           .update({
         'games': FieldValue.arrayUnion([newGame])
       });
@@ -74,33 +82,29 @@ class _AddMatchScreenState extends State<AddMatchScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Add a New Match')),
+      appBar: AppBar(title: Text('Add Match to ${widget.weekId.replaceAll('_', ' ')}')),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Form(
           key: _formKey,
           child: ListView(
             children: [
-              TextFormField(
-                controller: _team1NameController,
-                decoration: const InputDecoration(labelText: 'Team 1 Name'),
-                validator: (value) => value!.isEmpty ? 'Please enter a name' : null,
-              ),
-              TextFormField(
-                controller: _team1ColorController,
-                decoration: const InputDecoration(labelText: 'Team 1 Hex Color (e.g., F44336)'),
-                validator: (value) => value!.isEmpty ? 'Please enter a hex color' : null,
+              // --- NEW: Dropdown for Team 1 ---
+              DropdownButtonFormField<String>(
+                value: _selectedTeam1,
+                decoration: const InputDecoration(labelText: 'Team 1'),
+                items: nflTeams.map((team) => DropdownMenuItem(value: team, child: Text(team))).toList(),
+                onChanged: (value) => setState(() => _selectedTeam1 = value),
+                validator: (value) => value == null ? 'Please select a team' : null,
               ),
               const SizedBox(height: 20),
-              TextFormField(
-                controller: _team2NameController,
-                decoration: const InputDecoration(labelText: 'Team 2 Name'),
-                validator: (value) => value!.isEmpty ? 'Please enter a name' : null,
-              ),
-              TextFormField(
-                controller: _team2ColorController,
-                decoration: const InputDecoration(labelText: 'Team 2 Hex Color (e.g., 2196F3)'),
-                validator: (value) => value!.isEmpty ? 'Please enter a hex color' : null,
+              // --- NEW: Dropdown for Team 2 ---
+              DropdownButtonFormField<String>(
+                value: _selectedTeam2,
+                decoration: const InputDecoration(labelText: 'Team 2'),
+                items: nflTeams.map((team) => DropdownMenuItem(value: team, child: Text(team))).toList(),
+                onChanged: (value) => setState(() => _selectedTeam2 = value),
+                validator: (value) => value == null ? 'Please select a team' : null,
               ),
               const SizedBox(height: 30),
               _isLoading

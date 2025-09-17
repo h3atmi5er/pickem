@@ -123,7 +123,7 @@ class _PicksScreenState extends State<PicksScreen> {
   Map<String, String> _userPicks = {};
   bool _isLocked = false;
   bool _isLoading = true;
-  
+
   // New state variables for week selection
   List<DropdownMenuItem<String>> _weekMenuItems = [];
   String? _selectedWeekId;
@@ -317,89 +317,35 @@ class _PicksScreenState extends State<PicksScreen> {
 
   // Helper widget for team icons (reusable) (no changes here)
   Widget _buildTeamIcon({
-    required String teamName,
-    required Color color,
-    required bool isSelected,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: _isLocked ? null : onTap,
-      child: Container(
-        decoration: BoxDecoration(
-          border: Border.all(
-              color: isSelected ? Colors.green : Colors.transparent, width: 4),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          children: [
-            Icon(Icons.sports_football, color: color, size: 70),
-            Text(teamName),
-          ],
-        ),
+  required String teamName,
+  // required Color color, // REMOVED
+  required bool isSelected,
+  required VoidCallback onTap,
+}) {
+  return GestureDetector(
+    onTap: _isLocked ? null : onTap,
+    child: Container(
+      decoration: BoxDecoration(
+        border: Border.all(
+            color: isSelected ? Colors.green : Colors.transparent, width: 4),
+        borderRadius: BorderRadius.circular(12),
       ),
-    );
-  }
-}
-
-  // Helper widget to build a card for each game
-  Widget _buildGameCard(Map<String, dynamic> game) {
-    final gameId = game['gameId'];
-    final selectedWinner = _userPicks[gameId];
-
-    return Card(
-      margin: const EdgeInsets.all(12),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            Text('Game ${gameId.replaceAll('game', '')}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 10),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _buildTeamIcon(
-                  teamName: game['team1Name'],
-                  color: Color(int.parse('0xFF${game['team1Color']}')),
-                  isSelected: selectedWinner == game['team1Name'],
-                  onTap: () => setState(() => _userPicks[gameId] = game['team1Name']),
-                ),
-                const Text('VS', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                _buildTeamIcon(
-                  teamName: game['team2Name'],
-                  color: Color(int.parse('0xFF${game['team2Color']}')),
-                  isSelected: selectedWinner == game['team2Name'],
-                  onTap: () => setState(() => _userPicks[gameId] = game['team2Name']),
-                ),
-              ],
+      child: Column(
+        children: [
+          // --- MODIFIED: Use a default color for the icon ---
+          Icon(Icons.sports_football, color: Colors.grey[700], size: 70),
+          const SizedBox(height: 4),
+          // Use a SizedBox to constrain the width and allow text wrapping
+          SizedBox(
+            width: 100,
+            child: Text(
+              teamName,
+              textAlign: TextAlign.center,
+              maxLines: 2, // Allow team names to wrap to a second line
             ),
-          ],
-        ),
+          ),
+        ],
       ),
-    );
-  }
-
-  // Helper widget for team icons (reusable)
-  Widget _buildTeamIcon({
-    required String teamName,
-    required Color color,
-    required bool isSelected,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: _isLocked ? null : onTap,
-      child: Container(
-        decoration: BoxDecoration(
-          border: Border.all(
-              color: isSelected ? Colors.green : Colors.transparent, width: 4),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          children: [
-            Icon(Icons.sports_football, color: color, size: 70),
-            Text(teamName),
-          ],
-        ),
-      ),
-    );
-  }
+    ),
+  );
 }
