@@ -44,48 +44,48 @@ class AuthGate extends StatelessWidget {
   }
 }
 
-// ========== Main Screen (Updated) ==========
+// ========== Main Screen (Updated for Admin Role) ==========
 class MainScreen extends StatelessWidget {
   const MainScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final String? userId = FirebaseAuth.instance.currentUser?.uid;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Pick \'em'),
         actions: [
-          // Button to navigate to the Admin Screen
-          IconButton(
-            icon: const Icon(Icons.admin_panel_settings),
-            onPressed: () => Navigator.push(context,
-                MaterialPageRoute(builder: (_) => const AdminScreen())),
-          ),
+          // --- NEW: Secure Admin Button ---
+          // Use a FutureBuilder to check the user's role from Firestore
+          if (userId != null)
+            FutureBuilder<DocumentSnapshot>(
+              future: FirebaseFirestore.instance.collection('users').doc(userId).get(),
+              builder: (context, snapshot) {
+                // Check if user is admin
+                if (snapshot.connectionState == ConnectionState.done && snapshot.hasData) {
+                  final data = snapshot.data!.data() as Map<String, dynamic>?;
+                  final isAdmin = data?['role'] == 'admin';
+
+                  if (isAdmin) {
+                    return IconButton(
+                      icon: const Icon(Icons.admin_panel_settings),
+                      onPressed: () => Navigator.push(context,
+                          MaterialPageRoute(builder: (_) => const AdminScreen())),
+                    );
+                  }
+                }
+                // Return an empty container if not admin or still loading
+                return const SizedBox.shrink();
+              },
+            ),
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () => FirebaseAuth.instance.signOut(),
           ),
         ],
       ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(minimumSize: const Size(200, 60)),
-              onPressed: () => Navigator.push(context,
-                  MaterialPageRoute(builder: (_) => const PicksScreen())),
-              child: const Text('My Picks'),
-            ),
-            const SizedBox(height: 20),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(minimumSize: const Size(200, 60)),
-              onPressed: () => Navigator.push(context,
-                  MaterialPageRoute(builder: (_) => const AllPicksScreen())),
-              child: const Text('View All Picks'),
-            ),
-          ],
-        ),
-      ),
+      // ... (The rest of your MainScreen body remains the same)
     );
   }
 }
