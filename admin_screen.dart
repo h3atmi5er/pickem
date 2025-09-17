@@ -1,11 +1,11 @@
 // lib/admin_screen.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'add_match_screen.dart'; // Import the new screen
 
 class AdminScreen extends StatelessWidget {
   const AdminScreen({super.key});
 
-  // Function to toggle the lock state in Firestore
   Future<void> _toggleLock(bool isCurrentlyLocked) async {
     await FirebaseFirestore.instance
         .collection('matches')
@@ -17,7 +17,6 @@ class AdminScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Admin Controls')),
-      // StreamBuilder will listen to changes in your 'matches' document
       body: StreamBuilder<DocumentSnapshot>(
         stream: FirebaseFirestore.instance
             .collection('matches')
@@ -34,6 +33,7 @@ class AdminScreen extends StatelessWidget {
           return Padding(
             padding: const EdgeInsets.all(16.0),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   'Week: ${data['weekName'] ?? 'N/A'}',
@@ -50,14 +50,27 @@ class AdminScreen extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 10),
                 Text(
-                  isLocked
-                      ? 'Picks are currently LOCKED'
-                      : 'Picks are currently OPEN',
-                  style: TextStyle(
-                      fontSize: 16,
-                      color: isLocked ? Colors.red : Colors.green),
+                  isLocked ? 'Picks are currently LOCKED' : 'Picks are currently OPEN',
+                  style: TextStyle(fontSize: 16, color: isLocked ? Colors.red : Colors.green),
+                ),
+                const Divider(height: 40),
+
+                // --- NEW BUTTON ---
+                Center(
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add New Match'),
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+                    ),
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const AddMatchScreen()),
+                      );
+                    },
+                  ),
                 ),
               ],
             ),

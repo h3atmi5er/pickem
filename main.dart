@@ -44,7 +44,7 @@ class AuthGate extends StatelessWidget {
   }
 }
 
-// ========== Main Screen (Updated for Admin Role) ==========
+// ========== Main Screen (Updated with Correct Body) ==========
 class MainScreen extends StatelessWidget {
   const MainScreen({super.key});
 
@@ -56,26 +56,27 @@ class MainScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Pick \'em'),
         actions: [
-          // --- NEW: Secure Admin Button ---
-          // Use a FutureBuilder to check the user's role from Firestore
+          // --- Secure Admin Button ---
           if (userId != null)
             FutureBuilder<DocumentSnapshot>(
-              future: FirebaseFirestore.instance.collection('users').doc(userId).get(),
+              future:
+                  FirebaseFirestore.instance.collection('users').doc(userId).get(),
               builder: (context, snapshot) {
-                // Check if user is admin
-                if (snapshot.connectionState == ConnectionState.done && snapshot.hasData) {
+                if (snapshot.connectionState == ConnectionState.done &&
+                    snapshot.hasData) {
                   final data = snapshot.data!.data() as Map<String, dynamic>?;
                   final isAdmin = data?['role'] == 'admin';
 
                   if (isAdmin) {
                     return IconButton(
                       icon: const Icon(Icons.admin_panel_settings),
-                      onPressed: () => Navigator.push(context,
-                          MaterialPageRoute(builder: (_) => const AdminScreen())),
+                      onPressed: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => const AdminScreen())),
                     );
                   }
                 }
-                // Return an empty container if not admin or still loading
                 return const SizedBox.shrink();
               },
             ),
@@ -85,7 +86,27 @@ class MainScreen extends StatelessWidget {
           ),
         ],
       ),
-      // ... (The rest of your MainScreen body remains the same)
+      // --- FIX: Restored the body with navigation buttons ---
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(minimumSize: const Size(200, 60)),
+              onPressed: () => Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const PicksScreen())),
+              child: const Text('My Picks'),
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(minimumSize: const Size(200, 60)),
+              onPressed: () => Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const AllPicksScreen())),
+              child: const Text('View All Picks'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
