@@ -11,7 +11,7 @@ import 'admin_screen.dart';
 import 'all_picks_screen.dart';
 import 'loading_screen.dart';
 import 'picks_screen.dart';
-import 'make_picks_screen.dart'; 
+import 'make_picks_screen.dart';
 import 'profile_screen.dart';
 import 'display_name_screen.dart';
 
@@ -127,7 +127,6 @@ class MainScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Pick \'em'),
-        // RESTORED: The actions buttons are now back in the AppBar
         actions: [
           IconButton(
             icon: const Icon(Icons.person),
@@ -170,7 +169,8 @@ class MainScreen extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // RESTORED: The user's record display is back
+            const CurrentWeekRecord(),
+            const SizedBox(height: 12),
             if (userId != null)
               StreamBuilder<DocumentSnapshot>(
                 stream: FirebaseFirestore.instance.collection('users').doc(userId).snapshots(),
@@ -207,7 +207,6 @@ class MainScreen extends StatelessWidget {
                 },
               ),
             const SizedBox(height: 24),
-            // The three buttons from the last fix are correct
             ElevatedButton(
               style:
                   ElevatedButton.styleFrom(minimumSize: const Size(200, 60)),
@@ -230,6 +229,101 @@ class MainScreen extends StatelessWidget {
               onPressed: () => Navigator.push(context,
                   MaterialPageRoute(builder: (_) => const PicksScreen())),
               child: const Text('View Completed Weeks'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// MODIFIED: The CurrentWeekRecord widget has been rewritten to use the designated active week.
+class CurrentWeekRecord extends StatelessWidget {
+  const CurrentWeekRecord({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null) return const SizedBox.shrink();
+
+    // 1. Listen to the app_status document to find out which week is active.
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance.collection('app_status').doc('status').snapshots(),
+      builder: (context, statusSnapshot) {
+        if (!statusSnapshot.hasData || !statusSnapshot.data!.exists) {
+          return const SizedBox.shrink(); // No active week has been set by the admin.
+        }
+        final activeWeekId = statusSnapshot.data!['activeWeekId'];
+        if (activeWeekId == null || activeWeekId == '') {
+          return const SizedBox.shrink(); // Active week ID is not set.
+        }
+
+        // 2. Listen to the specific active week document in the 'matches' collection.
+        return StreamBuilder<DocumentSnapshot>(
+          stream: FirebaseFirestore.instance.collection('matches').doc(activeWeekId).snapshots(),
+          builder: (context, weekSnapshot) {
+            if (!weekSnapshot.hasData || !weekSnapshot.data!.exists) {
+              return const SizedBox.shrink(); // The designated active week doesn't exist in 'matches'.
+            }
+
+            final weekData = weekSnapshot.data!.data() as Map<String, dynamic>;
+            final weekName = weekData['weekName'] ?? 'Current Week';
+
+            // 3. Listen to the user's picks to calculate the record.
+            return StreamBuilder<DocumentSnapshot>(
+              stream: FirebaseFirestore.instance.collection('picks').doc(userId).snapshots(),
+              builder: (context, picksSnapshot) {
+                if (!picksSnapshot.hasData || !picksSnapshot.data!.exists) {
+                  return _buildRecordCard(context, weekName, 0, 0);
+                }
+
+                final picksData = picksSnapshot.data!.data() as Map<String, dynamic>;
+                if (!picksData.containsKey(activeWeekId)) {
+                  return _buildRecordCard(context, weekName, 0, 0);
+                }
+
+                final weeklyPicks = Map<String, String>.from(picksData[activeWeekId]);
+                final games = List<Map<String, dynamic>>.from(weekData['games'] ?? []);
+                int weeklyWins = 0;
+                int weeklyLosses = 0;
+
+                final winnersMap = {for (var g in games) g['gameId']: g['winner']};
+
+                weeklyPicks.forEach((gameId, pickedTeam) {
+                  final winner = winnersMap[gameId];
+                  if (winner != null) {
+                    if (pickedTeam == winner) {
+                      weeklyWins++;
+                    } else {
+                      weeklyLosses++;
+                    }
+                  }
+                });
+
+                return _buildRecordCard(context, weekName, weeklyWins, weeklyLosses);
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildRecordCard(BuildContext context, String weekName, int wins, int losses) {
+    return Card(
+      elevation: 4,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 24.0),
+        child: Column(
+          children: [
+            Text(
+              weekName,
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '$wins - $losses',
+              style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold),
             ),
           ],
         ),

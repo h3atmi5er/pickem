@@ -3,7 +3,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'add_match_screen.dart';
 import 'archive_screen.dart';
-import 'set_winners_screen.dart';
 
 class AdminScreen extends StatefulWidget {
   const AdminScreen({super.key});
@@ -103,8 +102,7 @@ class _AdminScreenState extends State<AdminScreen> {
               ],
             ));
   }
-  
-  // MODIFIED: Renamed function and updated dialog text
+
   Future<void> _finalizeAndMoveWeek(BuildContext context, String weekId, Map<String, dynamic> weekData) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -127,6 +125,18 @@ class _AdminScreenState extends State<AdminScreen> {
     }
   }
 
+  Future<void> _setActiveWeek(String weekId) async {
+    // Set the document with merge: true to avoid errors if it doesn't exist.
+    await FirebaseFirestore.instance.collection('app_status').doc('status').set({
+      'activeWeekId': weekId,
+    }, SetOptions(merge: true));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$weekId is now the active week.'), backgroundColor: Colors.green),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -135,7 +145,6 @@ class _AdminScreenState extends State<AdminScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.check_circle_outline),
-            // MODIFIED: Tooltip text updated
             tooltip: 'Manage Completed Weeks',
             onPressed: () => Navigator.push(
                 context, MaterialPageRoute(builder: (_) => const ArchiveScreen())),
@@ -150,79 +159,113 @@ class _AdminScreenState extends State<AdminScreen> {
         icon: const Icon(Icons.add),
         label: const Text('Add Week'),
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('matches')
-            .orderBy(FieldPath.documentId)
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) {
+      body: StreamBuilder<DocumentSnapshot>(
+        stream: FirebaseFirestore.instance.collection('app_status').doc('status').snapshots(),
+        builder: (context, statusSnapshot) {
+          // If the status document is still loading, show a progress indicator.
+          if (statusSnapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
 
-          final weekDocs = snapshot.data!.docs;
-          if (weekDocs.isEmpty) {
-            return const Center(child: Text('No active weeks found. Add a new week to get started.'));
+          String? activeWeekId;
+          // CORRECTED: This logic is now much safer and handles all possible null/error states.
+          if (statusSnapshot.hasData && statusSnapshot.data!.exists) {
+            final statusData = statusSnapshot.data!.data() as Map<String, dynamic>?;
+            activeWeekId = statusData?['activeWeekId'];
           }
 
-          return ListView.builder(
-            itemCount: weekDocs.length,
-            itemBuilder: (context, index) {
-              final weekDoc = weekDocs[index];
-              final data = weekDoc.data() as Map<String, dynamic>;
-              final weekId = weekDoc.id;
-              final weekName = data['weekName'] ?? 'Unnamed Week';
-              final List<dynamic> games = data['games'] ?? [];
+          return StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('matches')
+                .orderBy(FieldPath.documentId)
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                return const Center(child: Text('No active weeks found. Add a new week to get started.'));
+              }
 
-              return Card(
-                margin: const EdgeInsets.all(12),
-                elevation: 4,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              final weekDocs = snapshot.data!.docs;
+
+              return ListView.builder(
+                itemCount: weekDocs.length,
+                itemBuilder: (context, index) {
+                  final weekDoc = weekDocs[index];
+                  final data = weekDoc.data() as Map<String, dynamic>;
+                  final weekId = weekDoc.id;
+                  final weekName = data['weekName'] ?? 'Unnamed Week';
+                  final List<dynamic> games = data['games'] ?? [];
+                  final bool isActive = weekId == activeWeekId;
+
+                  return Card(
+                    margin: const EdgeInsets.all(12),
+                    elevation: 4,
+                    shape: isActive
+                      ? RoundedRectangleBorder(side: const BorderSide(color: Colors.green, width: 2), borderRadius: BorderRadius.circular(12))
+                      : null,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Flexible(child: Text(weekName, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold))),
                           Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              IconButton(icon: const Icon(Icons.edit), onPressed: () => _showRenameDialog(context, weekId, weekName), tooltip: 'Rename Week'),
-                              IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: () => _deleteWeek(context, weekId), tooltip: 'Delete Week'),
+                              Row(
+                                children: [
+                                  if (isActive)
+                                    const Padding(
+                                      padding: EdgeInsets.only(right: 8.0),
+                                      child: Icon(Icons.star, color: Colors.green),
+                                    ),
+                                  Flexible(child: Text(weekName, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold))),
+                                ],
+                              ),
+                              Row(
+                                children: [
+                                  IconButton(icon: const Icon(Icons.edit), onPressed: () => _showRenameDialog(context, weekId, weekName), tooltip: 'Rename Week'),
+                                  IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: () => _deleteWeek(context, weekId), tooltip: 'Delete Week'),
+                                ],
+                              )
+                            ],
+                          ),
+                          ExpansionTile(
+                            title: Text('${games.length} Matches'),
+                            children: games.map((game) => ListTile(
+                              title: Text('${game['team1Name']} vs ${game['team2Name']}'),
+                              trailing: IconButton(icon: const Icon(Icons.remove_circle_outline), onPressed: () => _removeGame(weekId, game)),
+                            )).toList(),
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                            children: [
+                              ElevatedButton.icon(icon: const Icon(Icons.add), label: const Text('Add Match'), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => AddMatchScreen(weekId: weekId)))),
+                              ElevatedButton.icon(
+                                icon: const Icon(Icons.check_circle),
+                                label: const Text('Set Active'),
+                                onPressed: isActive ? null : () => _setActiveWeek(weekId),
+                                style: ElevatedButton.styleFrom(backgroundColor: isActive ? Colors.grey : Colors.green),
+                              ),
+                              ElevatedButton.icon(
+                                icon: const Icon(Icons.archive),
+                                label: const Text('Finalize'),
+                                onPressed: () => _finalizeAndMoveWeek(context, weekId, data),
+                                style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+                              ),
                             ],
                           )
                         ],
                       ),
-                      ExpansionTile(
-                        title: Text('${games.length} Matches'),
-                        children: games.map((game) => ListTile(
-                          title: Text('${game['team1Name']} vs ${game['team2Name']}'),
-                          trailing: IconButton(icon: const Icon(Icons.remove_circle_outline), onPressed: () => _removeGame(weekId, game)),
-                        )).toList(),
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: [
-                          ElevatedButton.icon(icon: const Icon(Icons.add), label: const Text('Add Match'), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => AddMatchScreen(weekId: weekId)))),
-                          ElevatedButton.icon(
-                            icon: const Icon(Icons.archive),
-                            // MODIFIED: Button text
-                            label: const Text('Finalize & Move'),
-                            // MODIFIED: Function call
-                            onPressed: () => _finalizeAndMoveWeek(context, weekId, data),
-                            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
-                          ),
-                        ],
-                      )
-                    ],
-                  ),
-                ),
+                    ),
+                  );
+                },
               );
             },
           );
-        },
+        }
       ),
     );
   }

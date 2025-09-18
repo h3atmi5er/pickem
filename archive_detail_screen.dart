@@ -39,7 +39,10 @@ class _ArchiveDetailScreenState extends State<ArchiveDetailScreen> {
       final doc = await docRef.get();
       if (!doc.exists) return;
 
-      List<Map<String, dynamic>> games = List.from(doc.data()!['games'] ?? []);
+      final docData = doc.data()!;
+      final bool isAlreadyFinalized = docData['isFinalized'] ?? false;
+
+      List<Map<String, dynamic>> games = List.from(docData['games'] ?? []);
       for (int i = 0; i < games.length; i++) {
         final gameId = games[i]['gameId'];
         if (_winners.containsKey(gameId)) {
@@ -47,9 +50,21 @@ class _ArchiveDetailScreenState extends State<ArchiveDetailScreen> {
         }
       }
       await docRef.update({'games': games});
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Winners saved!'), backgroundColor: Colors.green,));
+
+      if (isAlreadyFinalized) {
+        await _recalculateFinalizedScores();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Winners saved and scores recalculated!'),
+            backgroundColor: Colors.blue,
+          ));
+        }
+      } else {
+         if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Winners saved!'), backgroundColor: Colors.green,));
+        }
       }
+
     } catch (e) {
       if(mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
@@ -58,6 +73,68 @@ class _ArchiveDetailScreenState extends State<ArchiveDetailScreen> {
       if(mounted) setState(() => _isLoading = false);
     }
   }
+
+  Future<void> _recalculateFinalizedScores() async {
+    final docRef = FirebaseFirestore.instance.collection('archives').doc(widget.archiveId);
+    final archiveDoc = await docRef.get();
+    if (!archiveDoc.exists) return;
+
+    final archiveData = archiveDoc.data()!;
+    final oldScores = Map<String, dynamic>.from(archiveData['scores'] ?? {});
+    final games = List<Map<String, dynamic>>.from(archiveData['games'] ?? []);
+
+    final winnersMap = {for (var game in games) game['gameId']: game['winner']};
+
+    final picksSnapshot = await FirebaseFirestore.instance.collection('picks').get();
+    final batch = FirebaseFirestore.instance.batch();
+    final newScoresMap = <String, dynamic>{};
+
+    for (final userPickDoc in picksSnapshot.docs) {
+      final userPickData = userPickDoc.data();
+      final userId = userPickDoc.id;
+
+      if (userPickData.containsKey(widget.archiveId)) {
+        final weekPicks = Map<String, String>.from(userPickData[widget.archiveId]);
+        int newWins = 0;
+        int newLosses = 0;
+        weekPicks.forEach((gameId, pickedTeam) {
+          if (winnersMap.containsKey(gameId) && winnersMap[gameId] != null) {
+            if (pickedTeam == winnersMap[gameId]) {
+              newWins++;
+            } else {
+              newLosses++;
+            }
+          }
+        });
+
+        final oldScoreData = oldScores[userId] as Map<String, dynamic>?;
+        final oldWins = oldScoreData?['wins'] ?? 0;
+        final oldLosses = oldScoreData?['losses'] ?? 0;
+
+        final winDifference = newWins - oldWins;
+        final lossDifference = newLosses - oldLosses;
+
+        if (winDifference != 0 || lossDifference != 0) {
+          final userRef = FirebaseFirestore.instance.collection('users').doc(userId);
+          batch.update(userRef, {
+            'totalWins': FieldValue.increment(winDifference),
+            'totalLosses': FieldValue.increment(lossDifference),
+          });
+        }
+
+        newScoresMap[userId] = {
+          'wins': newWins,
+          'losses': newLosses,
+          'displayName': userPickData['displayName']
+        };
+      }
+    }
+
+    batch.update(docRef, {'scores': newScoresMap});
+
+    await batch.commit();
+}
+
 
   Future<void> _promptToFinalizeScores() async {
      final bool allWinnersSet = !_winners.containsValue(null);
@@ -210,72 +287,17 @@ class _ArchiveDetailScreenState extends State<ArchiveDetailScreen> {
           final games = List<Map<String, dynamic>>.from(data['games'] ?? []);
           final isFinalized = data['isFinalized'] ?? false;
 
-          if (isFinalized) {
-            return _buildFinalizedView(data);
-          }
+          return ListView.builder(
+            padding: const EdgeInsets.fromLTRB(8, 8, 8, 150),
+            itemCount: isFinalized ? 2 : 1,
+            itemBuilder: (context, index) {
 
-          return Column(
-            children: [
-              Expanded(
-                child: ListView.builder(
-                  padding: const EdgeInsets.only(top: 8, bottom: 80),
-                  itemCount: games.length,
-                  itemBuilder: (context, index) {
-                    final game = games[index];
-                    final gameId = game['gameId'];
-                    final bool isMatchLocked = game['isMatchLocked'] ?? false;
+              if (isFinalized && index == 0) {
+                return _buildFinalizedScoresSection(data);
+              }
 
-                    final onChangedCallback = isMatchLocked
-                        ? null
-                        : (String? val) => setState(() => _winners[gameId] = val);
-
-                    return Card(
-                      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      child: Padding(
-                        padding: const EdgeInsets.all(8.0),
-                        child: Column(
-                          children: [
-                            Text('${game['team1Name']} vs ${game['team2Name']}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                            RadioListTile<String?>(
-                              title: Text(game['team1Name']),
-                              value: game['team1Name'],
-                              groupValue: _winners[gameId],
-                              onChanged: onChangedCallback,
-                            ),
-                            RadioListTile<String?>(
-                              title: Text(game['team2Name']),
-                              value: game['team2Name'],
-                              groupValue: _winners[gameId],
-                              onChanged: onChangedCallback,
-                            ),
-                            RadioListTile<String?>(
-                              title: const Text('Undecided', style: TextStyle(fontStyle: FontStyle.italic, color: Colors.grey)),
-                              value: null,
-                              groupValue: _winners[gameId],
-                              onChanged: onChangedCallback,
-                            ),
-                            const Divider(),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                const Padding(
-                                  padding: EdgeInsets.only(left: 16.0),
-                                  child: Text('Lock Match', style: TextStyle(fontSize: 16)),
-                                ),
-                                Switch(
-                                  value: isMatchLocked,
-                                  onChanged: (value) => _toggleMatchLock(gameId, value),
-                                ),
-                              ],
-                            )
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
+              return _buildMatchesSection(games);
+            },
           );
         },
       ),
@@ -291,30 +313,103 @@ class _ArchiveDetailScreenState extends State<ArchiveDetailScreen> {
                 heroTag: 'save_winners_fab',
               ),
               const SizedBox(height: 10),
-              FloatingActionButton.extended(
-                onPressed: _promptToFinalizeScores,
-                label: const Text('Finalize Scores'),
-                icon: const Icon(Icons.check_circle),
-                backgroundColor: Colors.green,
-                heroTag: 'finalize_scores_fab',
+               StreamBuilder<DocumentSnapshot>(
+                stream: FirebaseFirestore.instance.collection('archives').doc(widget.archiveId).snapshots(),
+                builder: (context, snapshot) {
+                  if (snapshot.hasData && (snapshot.data!.data() as Map<String, dynamic>)['isFinalized'] != true) {
+                    return FloatingActionButton.extended(
+                      onPressed: _promptToFinalizeScores,
+                      label: const Text('Finalize Scores'),
+                      icon: const Icon(Icons.check_circle),
+                      backgroundColor: Colors.green,
+                      heroTag: 'finalize_scores_fab',
+                    );
+                  }
+                  return const SizedBox.shrink();
+                }
               ),
             ],
           )
     );
   }
 
-  Widget _buildFinalizedView(Map<String, dynamic> data) {
+  Widget _buildMatchesSection(List<Map<String, dynamic>> games) {
+    return Column(
+      children: [
+         _buildSectionTitle('Manage Winners & Locks'),
+         ...games.map((game) {
+          final gameId = game['gameId'];
+          final bool isMatchLocked = game['isMatchLocked'] ?? false;
+          final onChangedCallback = (String? val) => setState(() => _winners[gameId] = val);
+
+          return Card(
+            margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+            child: Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: Column(
+                children: [
+                  Text('${game['team1Name']} vs ${game['team2Name']}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  RadioListTile<String?>(
+                    title: Text(game['team1Name']),
+                    value: game['team1Name'],
+                    groupValue: _winners[gameId],
+                    onChanged: onChangedCallback,
+                  ),
+                  RadioListTile<String?>(
+                    title: Text(game['team2Name']),
+                    value: game['team2Name'],
+                    groupValue: _winners[gameId],
+                    onChanged: onChangedCallback,
+                  ),
+                  RadioListTile<String?>(
+                    title: const Text('Undecided', style: TextStyle(fontStyle: FontStyle.italic, color: Colors.grey)),
+                    value: null,
+                    groupValue: _winners[gameId],
+                    onChanged: onChangedCallback,
+                  ),
+                  const Divider(),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Padding(
+                        padding: EdgeInsets.only(left: 16.0),
+                        child: Text('Lock Match', style: TextStyle(fontSize: 16)),
+                      ),
+                      Switch(
+                        value: isMatchLocked,
+                        onChanged: (value) => _toggleMatchLock(gameId, value),
+                      ),
+                    ],
+                  )
+                ],
+              ),
+            ),
+          );
+        }).toList(),
+      ],
+    );
+  }
+
+  Widget _buildFinalizedScoresSection(Map<String, dynamic> data) {
     final scores = Map<String, dynamic>.from(data['scores'] ?? {});
+    if (scores.isEmpty) {
+      return Column(
+        children: [
+          _buildSectionTitle('Scores'),
+          const Card(child: ListTile(title: Text('Scores have not been calculated yet.'))),
+        ],
+      );
+    }
     final sortedScores = scores.entries.toList()
       ..sort((a, b) => (b.value['wins'] as int).compareTo(a.value['wins'] as int));
 
-    return ListView(
-      padding: const EdgeInsets.all(16),
+    return Column(
       children: [
         _buildSectionTitle('Scores Finalized'),
         ...sortedScores.map((entry) {
           final scoreData = entry.value;
           return Card(
+            margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
             child: ListTile(
               title: Text(scoreData['displayName'], style: const TextStyle(fontWeight: FontWeight.bold)),
               trailing: Text('${scoreData['wins']} - ${scoreData['losses']}', style: const TextStyle(fontSize: 16)),

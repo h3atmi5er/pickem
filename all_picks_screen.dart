@@ -19,9 +19,12 @@ class _AllPicksScreenState extends State<AllPicksScreen> {
     _loadAvailableWeeks();
   }
 
+  // MODIFIED: This function now loads weeks from the 'archives' collection.
   Future<void> _loadAvailableWeeks() async {
+    setState(() => _isLoading = true);
     try {
-      final snapshot = await FirebaseFirestore.instance.collection('matches').get();
+      // Query the 'archives' collection and order by when they were archived.
+      final snapshot = await FirebaseFirestore.instance.collection('archives').orderBy('archivedAt', descending: true).get();
       if (snapshot.docs.isEmpty) {
         if (mounted) setState(() => _isLoading = false);
         return;
@@ -35,7 +38,9 @@ class _AllPicksScreenState extends State<AllPicksScreen> {
       if (mounted) {
         setState(() {
           _weekMenuItems = weeks;
-          _selectedWeekId = weeks.first.value;
+          if (weeks.isNotEmpty) {
+            _selectedWeekId = weeks.first.value;
+          }
           _isLoading = false;
         });
       }
@@ -75,7 +80,8 @@ class _AllPicksScreenState extends State<AllPicksScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _selectedWeekId == null
-              ? const Center(child: Text('No weeks available to view.'))
+              // MODIFIED: Text updated for clarity.
+              ? const Center(child: Text('No finalized weeks are available to view.'))
               : StreamBuilder<QuerySnapshot>(
                   stream: FirebaseFirestore.instance
                       .collection('picks')
@@ -86,20 +92,26 @@ class _AllPicksScreenState extends State<AllPicksScreen> {
                       return const Center(child: CircularProgressIndicator());
                     }
                     if (!picksSnapshot.hasData || picksSnapshot.data!.docs.isEmpty) {
-                      return const Center(child: Text('No one has made any picks yet.'));
+                      return const Center(child: Text('No one made any picks for this week.'));
                     }
 
                     final picks = picksSnapshot.data!.docs;
 
+                    // MODIFIED: StreamBuilder now points to the 'archives' collection to get match data.
                     return StreamBuilder<DocumentSnapshot>(
-                      stream: FirebaseFirestore.instance.collection('matches').doc(_selectedWeekId!).snapshots(),
+                      stream: FirebaseFirestore.instance.collection('archives').doc(_selectedWeekId!).snapshots(),
                       builder: (context, matchSnapshot) {
+                        if (matchSnapshot.connectionState == ConnectionState.waiting) {
+                           return const Center(child: CircularProgressIndicator());
+                        }
                         if (!matchSnapshot.hasData || !matchSnapshot.data!.exists) {
                           return const Center(child: Text('This week has no matches scheduled.'));
                         }
 
                         final matchData = matchSnapshot.data!.data() as Map<String, dynamic>;
                         final List<dynamic> games = matchData['games'] ?? [];
+                        final winnerMap = {for (var game in games) game['gameId']: game['winner']};
+
 
                         if (games.isEmpty) {
                           return const Center(child: Text('No matches have been added for this week yet.'));
@@ -112,18 +124,42 @@ class _AllPicksScreenState extends State<AllPicksScreen> {
                             final displayName = pickData['displayName'] ?? 'Unknown User';
                             final weekPicksMap = pickData[_selectedWeekId] as Map<String, dynamic>? ?? {};
 
+                            // Calculate wins and losses for the header
+                            int wins = 0;
+                            int losses = 0;
+                            weekPicksMap.forEach((gameId, pickedTeam) {
+                               final winner = winnerMap[gameId];
+                               if (winner != null) {
+                                 if (pickedTeam == winner) {
+                                   wins++;
+                                 } else {
+                                   losses++;
+                                 }
+                               }
+                            });
+
+
                             List<Widget> picksTextWidgets = games.map((game) {
                               final gameData = game as Map<String, dynamic>;
                               final gameId = gameData['gameId'];
                               final userPick = weekPicksMap[gameId] ?? 'No Pick';
                               final gameNumber = gameId.replaceAll('game', '');
+                              final winner = winnerMap[gameId];
                               
+                              Color pickColor = Colors.grey;
+                              if (winner != null && userPick != 'No Pick') {
+                                pickColor = userPick == winner ? Colors.green : Colors.red;
+                              }
+
                               return Padding(
                                 padding: const EdgeInsets.symmetric(vertical: 2.0),
-                                child: Text('Game $gameNumber: $userPick'),
+                                child: Text(
+                                  'Game $gameNumber: $userPick',
+                                  style: TextStyle(color: pickColor, fontWeight: FontWeight.bold),
+                                ),
                               );
                             }).toList();
-                            
+
                             if (picksTextWidgets.isEmpty) {
                               picksTextWidgets.add(const Text('No matches scheduled for this week.'));
                             }
@@ -131,7 +167,13 @@ class _AllPicksScreenState extends State<AllPicksScreen> {
                             return Card(
                               margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                               child: ListTile(
-                                title: Text(displayName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                title: Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(displayName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                    Text('$wins - $losses', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                  ],
+                                ),
                                 subtitle: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: picksTextWidgets,
