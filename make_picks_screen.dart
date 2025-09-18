@@ -1,17 +1,17 @@
-// lib/picks_screen.dart
+// lib/make_picks_screen.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'nfl_teams.dart';
 
-class PicksScreen extends StatefulWidget {
-  const PicksScreen({super.key});
+class MakePicksScreen extends StatefulWidget {
+  const MakePicksScreen({super.key});
 
   @override
-  State<PicksScreen> createState() => _PicksScreenState();
+  State<MakePicksScreen> createState() => _MakePicksScreenState();
 }
 
-class _PicksScreenState extends State<PicksScreen> {
+class _MakePicksScreenState extends State<MakePicksScreen> {
   String? _selectedDocId;
   Map<String, String> _userPicks = {};
   bool _isLoading = true;
@@ -23,16 +23,16 @@ class _PicksScreenState extends State<PicksScreen> {
     _loadAvailableWeeks();
   }
 
-  // MODIFIED: Only loads from the 'archives' collection now
+  // This function loads only active weeks from the 'matches' collection
   Future<void> _loadAvailableWeeks() async {
     setState(() => _isLoading = true);
-    final archivesSnapshot = await FirebaseFirestore.instance.collection('archives').orderBy('archivedAt', descending: true).get();
-
+    final matchesSnapshot = await FirebaseFirestore.instance.collection('matches').get();
+    
     final List<DropdownMenuItem<String>> weeks = [];
+    final sortedMatches = matchesSnapshot.docs..sort((a, b) => a.id.compareTo(b.id));
 
-    for (var doc in archivesSnapshot.docs) {
+    for (var doc in sortedMatches) {
       final weekName = (doc.data())['weekName'] ?? doc.id;
-      // The value is now just the doc.id, no collection prefix needed
       weeks.add(DropdownMenuItem(value: doc.id, child: Text(weekName)));
     }
 
@@ -47,13 +47,11 @@ class _PicksScreenState extends State<PicksScreen> {
     }
   }
 
-  // MODIFIED: Simplified since we only have one collection
   void _setSelectedWeek(String docId) {
     _selectedDocId = docId;
     _loadUserPicksForWeek(_selectedDocId!);
     setState(() {});
   }
-
 
   Future<void> _loadUserPicksForWeek(String weekId) async {
     final userId = FirebaseAuth.instance.currentUser!.uid;
@@ -69,6 +67,20 @@ class _PicksScreenState extends State<PicksScreen> {
     }
   }
 
+  Future<void> _savePicks() async {
+    final userId = FirebaseAuth.instance.currentUser!.uid;
+    await FirebaseFirestore.instance.collection('picks').doc(userId).set({
+      _selectedDocId!: _userPicks,
+    }, SetOptions(merge: true));
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Picks saved!'),
+        backgroundColor: Colors.green,
+      ));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -76,21 +88,20 @@ class _PicksScreenState extends State<PicksScreen> {
     }
     if (_weekMenuItems.isEmpty) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Completed Weeks')),
-        body: const Center(child: Text('No weeks have been completed yet.'))
+        appBar: AppBar(title: const Text('Make My Picks')),
+        body: const Center(child: Text('There are no active weeks to make picks for.'))
       );
     }
 
     if (_selectedDocId == null) {
        return Scaffold(
-        appBar: AppBar(title: const Text('Completed Weeks')),
+        appBar: AppBar(title: const Text('Make My Picks')),
         body: const Center(child: Text('Please select a week.'))
       );
     }
 
-    // MODIFIED: StreamBuilder now points directly to the 'archives' collection
     return StreamBuilder<DocumentSnapshot>(
-      stream: FirebaseFirestore.instance.collection('archives').doc(_selectedDocId!).snapshots(),
+      stream: FirebaseFirestore.instance.collection('matches').doc(_selectedDocId!).snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
           return const Scaffold(body: Center(child: CircularProgressIndicator()));
@@ -104,39 +115,30 @@ class _PicksScreenState extends State<PicksScreen> {
 
         return Scaffold(
           appBar: AppBar(
-            // MODIFIED: Title is static, Dropdown is in the body for clarity
-            title: const Text('Completed Weeks'),
+            title: DropdownButton<String>(
+              value: _selectedDocId,
+              items: _weekMenuItems,
+              onChanged: (value) => _setSelectedWeek(value!),
+              dropdownColor: Colors.black,
+              style: const TextStyle(color: Colors.white, fontSize: 20),
+            ),
           ),
-          // REMOVED: FloatingActionButton is gone as picks cannot be saved here
-          body: Column(
-            children: [
-              // Dropdown is now part of the body
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                color: Theme.of(context).appBarTheme.backgroundColor,
-                child: DropdownButton<String>(
-                  value: _selectedDocId,
-                  items: _weekMenuItems,
-                  onChanged: (value) => _setSelectedWeek(value!),
-                  isExpanded: true,
-                  dropdownColor: Colors.black,
-                  style: const TextStyle(color: Colors.white, fontSize: 20),
-                ),
-              ),
-              Expanded(
-                child: games.isEmpty
-                    ? const Center(child: Text('No matches were played this week.'))
-                    : ListView.builder(
-                        itemCount: games.length,
-                        itemBuilder: (context, index) {
-                          final game = games[index];
-                          // This is a read-only view, so canMakePicks is always false
-                          return _buildGameCard(game, false);
-                        },
-                      ),
-              ),
-            ],
-          ),
+          floatingActionButton: (_userPicks.isNotEmpty)
+              ? FloatingActionButton.extended(
+                  onPressed: _savePicks,
+                  label: const Text('Save Picks'),
+                  icon: const Icon(Icons.save),
+                )
+              : null,
+          body: games.isEmpty
+                  ? const Center(child: Text('No matches have been added for this week yet.'))
+                  : ListView.builder(
+                      itemCount: games.length,
+                      itemBuilder: (context, index) {
+                        final game = games[index];
+                        return _buildGameCard(game, true);
+                      },
+                    ),
         );
       },
     );
@@ -145,14 +147,10 @@ class _PicksScreenState extends State<PicksScreen> {
   Widget _buildGameCard(Map<String, dynamic> game, bool canMakePicks) {
     final gameId = game['gameId'];
     final userPick = _userPicks[gameId];
-    final actualWinner = game['winner'];
-
+    
     Color getBorderColor(String teamName) {
       if (userPick == teamName) {
-        if (actualWinner != null) {
-          return actualWinner == teamName ? Colors.green : Colors.red;
-        }
-        return Colors.blue; // Should not happen in this view, but good fallback
+        return Colors.blue;
       }
       return Colors.transparent;
     }
@@ -163,23 +161,20 @@ class _PicksScreenState extends State<PicksScreen> {
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            if (actualWinner != null)
-              Text('Winner: $actualWinner', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green, fontSize: 16)),
-            const SizedBox(height: 8),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
                 _buildTeamIcon(
                   teamName: game['team1Name'],
                   borderColor: getBorderColor(game['team1Name']),
-                  onTap: () {}, // No-op
+                  onTap: () => setState(() => _userPicks[gameId] = game['team1Name']),
                   canMakePicks: canMakePicks,
                 ),
                 const Text('VS', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                 _buildTeamIcon(
                   teamName: game['team2Name'],
                   borderColor: getBorderColor(game['team2Name']),
-                  onTap: () {}, // No-op
+                  onTap: () => setState(() => _userPicks[gameId] = game['team2Name']),
                   canMakePicks: canMakePicks,
                 ),
               ],

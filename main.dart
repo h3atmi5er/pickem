@@ -11,6 +11,7 @@ import 'admin_screen.dart';
 import 'all_picks_screen.dart';
 import 'loading_screen.dart';
 import 'picks_screen.dart';
+import 'make_picks_screen.dart'; 
 import 'profile_screen.dart';
 import 'display_name_screen.dart';
 
@@ -22,6 +23,7 @@ void main() {
   runApp(const MyApp());
 }
 
+// ... (MyApp and AuthGate widgets are unchanged)
 class MyApp extends StatefulWidget {
   const MyApp({super.key});
 
@@ -125,6 +127,7 @@ class MainScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Pick \'em'),
+        // RESTORED: The actions buttons are now back in the AppBar
         actions: [
           IconButton(
             icon: const Icon(Icons.person),
@@ -167,7 +170,7 @@ class MainScreen extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // ADDED WIDGET TO DISPLAY RECORD
+            // RESTORED: The user's record display is back
             if (userId != null)
               StreamBuilder<DocumentSnapshot>(
                 stream: FirebaseFirestore.instance.collection('users').doc(userId).snapshots(),
@@ -204,12 +207,13 @@ class MainScreen extends StatelessWidget {
                 },
               ),
             const SizedBox(height: 24),
+            // The three buttons from the last fix are correct
             ElevatedButton(
               style:
                   ElevatedButton.styleFrom(minimumSize: const Size(200, 60)),
               onPressed: () => Navigator.push(context,
-                  MaterialPageRoute(builder: (_) => const PicksScreen())),
-              child: const Text('My Picks'),
+                  MaterialPageRoute(builder: (_) => const MakePicksScreen())),
+              child: const Text('Make My Picks'),
             ),
             const SizedBox(height: 20),
             ElevatedButton(
@@ -217,7 +221,15 @@ class MainScreen extends StatelessWidget {
                   ElevatedButton.styleFrom(minimumSize: const Size(200, 60)),
               onPressed: () => Navigator.push(context,
                   MaterialPageRoute(builder: (_) => const AllPicksScreen())),
-              child: const Text('View All Picks'),
+              child: const Text('View Everyone\'s Picks'),
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton(
+              style:
+                  ElevatedButton.styleFrom(minimumSize: const Size(200, 60)),
+              onPressed: () => Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const PicksScreen())),
+              child: const Text('View Completed Weeks'),
             ),
           ],
         ),

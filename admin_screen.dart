@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'add_match_screen.dart';
 import 'archive_screen.dart';
+import 'set_winners_screen.dart';
 
 class AdminScreen extends StatefulWidget {
   const AdminScreen({super.key});
@@ -12,14 +13,30 @@ class AdminScreen extends StatefulWidget {
 }
 
 class _AdminScreenState extends State<AdminScreen> {
-  // REMOVED _toggleLock function
 
   Future<void> _removeGame(String weekId, Map<String, dynamic> gameToRemove) async {
-    // ... (function is unchanged)
+    final weekRef = FirebaseFirestore.instance.collection('matches').doc(weekId);
+    await weekRef.update({
+      'games': FieldValue.arrayRemove([gameToRemove])
+    });
   }
 
   Future<void> _deleteWeek(BuildContext context, String weekId) async {
-    // ... (function is unchanged)
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Are you sure?'),
+        content: Text('This will permanently delete "$weekId". This action cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Delete', style: TextStyle(color: Colors.red))),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await FirebaseFirestore.instance.collection('matches').doc(weekId).delete();
+    }
   }
 
   void _showAddWeekDialog(BuildContext context, int nextWeekNumber) {
@@ -49,7 +66,6 @@ class _AdminScreenState extends State<AdminScreen> {
                       .doc('week_$nextWeekNumber')
                       .set({
                     'weekName': newName,
-                    // 'isLocked' field is no longer needed here
                     'games': [],
                   });
                   if (!context.mounted) return;
@@ -66,22 +82,61 @@ class _AdminScreenState extends State<AdminScreen> {
 
   void _showRenameDialog(
       BuildContext context, String weekId, String currentName) {
-    // ... (function is unchanged)
+    final TextEditingController nameController =
+        TextEditingController(text: currentName);
+    showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+              title: const Text('Rename Week'),
+              content: TextField(controller: nameController),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+                ElevatedButton(
+                    onPressed: () async {
+                      await FirebaseFirestore.instance
+                          .collection('matches')
+                          .doc(weekId)
+                          .update({'weekName': nameController.text.trim()});
+                      if (mounted) Navigator.pop(context);
+                    },
+                    child: const Text('Save')),
+              ],
+            ));
   }
+  
+  // MODIFIED: Renamed function and updated dialog text
+  Future<void> _finalizeAndMoveWeek(BuildContext context, String weekId, Map<String, dynamic> weekData) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Finalize and Move Week?'),
+        content: const Text('This will move the week to the public "Completed Weeks" section. You can finalize scores from there.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
+          ElevatedButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Finalize & Move')),
+        ],
+      ),
+    );
 
-  Future<void> _archiveWeek(BuildContext context, String weekId, Map<String, dynamic> weekData) async {
-    // ... (function is unchanged)
+    if (confirmed == true) {
+      await FirebaseFirestore.instance.collection('archives').doc(weekId).set({
+        ...weekData,
+        'archivedAt': FieldValue.serverTimestamp(),
+      });
+      await FirebaseFirestore.instance.collection('matches').doc(weekId).delete();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Manage Weeks'),
+        title: const Text('Manage Active Weeks'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.archive),
-            tooltip: 'View Archives',
+            icon: const Icon(Icons.check_circle_outline),
+            // MODIFIED: Tooltip text updated
+            tooltip: 'Manage Completed Weeks',
             onPressed: () => Navigator.push(
                 context, MaterialPageRoute(builder: (_) => const ArchiveScreen())),
           ),
@@ -89,7 +144,8 @@ class _AdminScreenState extends State<AdminScreen> {
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () async {
-          // ... (functionality is unchanged)
+           final querySnapshot = await FirebaseFirestore.instance.collection('matches').get();
+           _showAddWeekDialog(context, querySnapshot.docs.length + 1);
         },
         icon: const Icon(Icons.add),
         label: const Text('Add Week'),
@@ -100,12 +156,14 @@ class _AdminScreenState extends State<AdminScreen> {
             .orderBy(FieldPath.documentId)
             .snapshots(),
         builder: (context, snapshot) {
-          if (!snapshot.hasData)
+          if (!snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
+          }
 
           final weekDocs = snapshot.data!.docs;
-          if (weekDocs.isEmpty)
-            return const Center(child: Text('No active weeks found.'));
+          if (weekDocs.isEmpty) {
+            return const Center(child: Text('No active weeks found. Add a new week to get started.'));
+          }
 
           return ListView.builder(
             itemCount: weekDocs.length,
@@ -125,13 +183,39 @@ class _AdminScreenState extends State<AdminScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
-                        // ... (Rename and Delete buttons are unchanged)
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Flexible(child: Text(weekName, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold))),
+                          Row(
+                            children: [
+                              IconButton(icon: const Icon(Icons.edit), onPressed: () => _showRenameDialog(context, weekId, weekName), tooltip: 'Rename Week'),
+                              IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: () => _deleteWeek(context, weekId), tooltip: 'Delete Week'),
+                            ],
+                          )
+                        ],
                       ),
-                      // REMOVED the "Lock Picks" Switch Row
                       ExpansionTile(
-                        // ... (This section is unchanged)
+                        title: Text('${games.length} Matches'),
+                        children: games.map((game) => ListTile(
+                          title: Text('${game['team1Name']} vs ${game['team2Name']}'),
+                          trailing: IconButton(icon: const Icon(Icons.remove_circle_outline), onPressed: () => _removeGame(weekId, game)),
+                        )).toList(),
                       ),
-                      // ... (Rest of the buttons are unchanged)
+                      const SizedBox(height: 10),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          ElevatedButton.icon(icon: const Icon(Icons.add), label: const Text('Add Match'), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => AddMatchScreen(weekId: weekId)))),
+                          ElevatedButton.icon(
+                            icon: const Icon(Icons.archive),
+                            // MODIFIED: Button text
+                            label: const Text('Finalize & Move'),
+                            // MODIFIED: Function call
+                            onPressed: () => _finalizeAndMoveWeek(context, weekId, data),
+                            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+                          ),
+                        ],
+                      )
                     ],
                   ),
                 ),
