@@ -30,13 +30,13 @@ class AdminScreen extends StatelessWidget {
         content: const Text('This will permanently delete the entire week and all its matches. This cannot be undone.'),
         actions: [
           TextButton(
-            child: const Text('Cancel'),
             onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
           ),
           ElevatedButton(
-            child: const Text('Delete'),
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Delete'),
           ),
         ],
       ),
@@ -61,11 +61,10 @@ class AdminScreen extends StatelessWidget {
           ),
           actions: [
             TextButton(
-              child: const Text('Cancel'),
               onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
             ),
             ElevatedButton(
-              child: const Text('Create'),
               onPressed: () async {
                 final newName = nameController.text.trim();
                 if (newName.isNotEmpty) {
@@ -77,9 +76,11 @@ class AdminScreen extends StatelessWidget {
                         'isLocked': false,
                         'games': [],
                       });
+                  if (!context.mounted) return;
                   Navigator.of(context).pop();
                 }
               },
+              child: const Text('Create'),
             ),
           ],
         );
@@ -95,16 +96,17 @@ class AdminScreen extends StatelessWidget {
         title: const Text('Rename Week'),
         content: TextField(controller: nameController, decoration: const InputDecoration(hintText: 'Enter new week name')),
         actions: [
-          TextButton(child: const Text('Cancel'), onPressed: () => Navigator.of(context).pop()),
+          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
           ElevatedButton(
-            child: const Text('Save'),
             onPressed: () async {
               final newName = nameController.text.trim();
               if (newName.isNotEmpty) {
                 await FirebaseFirestore.instance.collection('matches').doc(weekId).update({'weekName': newName});
+                if (!context.mounted) return;
                 Navigator.of(context).pop();
               }
             },
+            child: const Text('Save'),
           ),
         ],
       ),
@@ -116,22 +118,20 @@ class AdminScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Manage Weeks')),
       floatingActionButton: FloatingActionButton.extended(
-        icon: const Icon(Icons.add),
-        label: const Text('Add Week'),
-        // --- THIS IS THE CORRECTED LOGIC ---
         onPressed: () async {
           final querySnapshot = await FirebaseFirestore.instance.collection('matches').get();
           int maxWeekNum = 0;
-          // Find the highest week number from the document IDs
           for (var doc in querySnapshot.docs) {
             final weekNum = int.tryParse(doc.id.replaceAll('week_', '')) ?? 0;
             if (weekNum > maxWeekNum) {
               maxWeekNum = weekNum;
             }
           }
-          // The next week is the highest number + 1
+          if (!context.mounted) return;
           _showAddWeekDialog(context, maxWeekNum + 1);
         },
+        icon: const Icon(Icons.add),
+        label: const Text('Add Week'),
       ),
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance.collection('matches').orderBy(FieldPath.documentId).snapshots(),
@@ -205,9 +205,9 @@ class AdminScreen extends StatelessWidget {
                       const Divider(height: 20),
                       Center(
                         child: ElevatedButton.icon(
+                          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => AddMatchScreen(weekId: weekId))),
                           icon: const Icon(Icons.add),
                           label: const Text('Add Match to this Week'),
-                          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => AddMatchScreen(weekId: weekId))),
                         ),
                       ),
                     ],

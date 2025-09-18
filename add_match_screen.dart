@@ -1,7 +1,6 @@
-// lib/add_match_screen.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'nfl_teams.dart'; // Import the new teams list
+import 'nfl_teams.dart';
 
 class AddMatchScreen extends StatefulWidget {
   final String weekId;
@@ -27,15 +26,28 @@ class _AddMatchScreenState extends State<AddMatchScreen> {
     }
     setState(() => _isLoading = true);
     try {
-      final matchesDoc = await FirebaseFirestore.instance.collection('matches').doc(widget.weekId).get();
-      int nextGameId = 1;
-      if (matchesDoc.exists && matchesDoc.data()!.containsKey('games')) {
-        nextGameId = (matchesDoc.data()!['games'] as List).length + 1;
-      }
-      final newGame = {'gameId': 'game$nextGameId', 'team1Name': _selectedTeam1, 'team2Name': _selectedTeam2};
-      await FirebaseFirestore.instance.collection('matches').doc(widget.weekId).update({
-        'games': FieldValue.arrayUnion([newGame])
+      final matchesRef = FirebaseFirestore.instance.collection('matches').doc(widget.weekId);
+      
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final snapshot = await transaction.get(matchesRef);
+        
+        if (!snapshot.exists) {
+          throw Exception("Document does not exist!");
+        }
+        
+        final games = List<Map<String, dynamic>>.from(snapshot.data()!['games'] ?? []);
+        final nextGameId = games.length + 1;
+        final newGame = {
+          'gameId': 'game$nextGameId',
+          'team1Name': _selectedTeam1,
+          'team2Name': _selectedTeam2,
+        };
+        
+        transaction.update(matchesRef, {
+          'games': FieldValue.arrayUnion([newGame])
+        });
       });
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Match added successfully!'), backgroundColor: Colors.green));
         Navigator.of(context).pop();
@@ -59,7 +71,6 @@ class _AddMatchScreenState extends State<AddMatchScreen> {
           key: _formKey,
           child: ListView(
             children: [
-              // --- FIX: Use the keys from the new nflTeamsMap ---
               DropdownButtonFormField<String>(
                 value: _selectedTeam1,
                 decoration: const InputDecoration(labelText: 'Team 1'),

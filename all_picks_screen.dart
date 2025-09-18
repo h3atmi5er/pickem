@@ -1,4 +1,3 @@
-// lib/all_picks_screen.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
@@ -41,7 +40,12 @@ class _AllPicksScreenState extends State<AllPicksScreen> {
         });
       }
     } catch (e) {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error loading weeks: $e')),
+        );
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -72,32 +76,34 @@ class _AllPicksScreenState extends State<AllPicksScreen> {
           ? const Center(child: CircularProgressIndicator())
           : _selectedWeekId == null
               ? const Center(child: Text('No weeks available to view.'))
-              : StreamBuilder<DocumentSnapshot>(
-                  stream: FirebaseFirestore.instance.collection('matches').doc(_selectedWeekId!).snapshots(),
-                  builder: (context, matchSnapshot) {
-                    // --- FIX: Added checks for loading and data existence ---
-                    if (matchSnapshot.connectionState == ConnectionState.waiting) {
+              : StreamBuilder<QuerySnapshot>(
+                  stream: FirebaseFirestore.instance
+                      .collection('picks')
+                      .where(_selectedWeekId!, isNotEqualTo: null)
+                      .snapshots(),
+                  builder: (context, picksSnapshot) {
+                    if (picksSnapshot.connectionState == ConnectionState.waiting) {
                       return const Center(child: CircularProgressIndicator());
                     }
-                    if (!matchSnapshot.hasData || !matchSnapshot.data!.exists) {
-                      return const Center(child: Text('This week has no matches scheduled.'));
-                    }
-                    
-                    final matchData = matchSnapshot.data!.data() as Map<String, dynamic>;
-                    final List<dynamic> games = matchData['games'] ?? [];
-
-                    // If there are no games, display a clear message
-                    if (games.isEmpty) {
-                      return const Center(child: Text('No matches have been added for this week yet.'));
+                    if (!picksSnapshot.hasData || picksSnapshot.data!.docs.isEmpty) {
+                      return const Center(child: Text('No one has made any picks yet.'));
                     }
 
-                    return StreamBuilder<QuerySnapshot>(
-                      stream: FirebaseFirestore.instance.collection('picks').snapshots(),
-                      builder: (context, picksSnapshot) {
-                        if (!picksSnapshot.hasData) return const Center(child: CircularProgressIndicator());
-                        
-                        final picks = picksSnapshot.data!.docs;
-                        if (picks.isEmpty) return const Center(child: Text('No one has made any picks yet.'));
+                    final picks = picksSnapshot.data!.docs;
+
+                    return StreamBuilder<DocumentSnapshot>(
+                      stream: FirebaseFirestore.instance.collection('matches').doc(_selectedWeekId!).snapshots(),
+                      builder: (context, matchSnapshot) {
+                        if (!matchSnapshot.hasData || !matchSnapshot.data!.exists) {
+                          return const Center(child: Text('This week has no matches scheduled.'));
+                        }
+
+                        final matchData = matchSnapshot.data!.data() as Map<String, dynamic>;
+                        final List<dynamic> games = matchData['games'] ?? [];
+
+                        if (games.isEmpty) {
+                          return const Center(child: Text('No matches have been added for this week yet.'));
+                        }
 
                         return ListView.builder(
                           itemCount: picks.length,
