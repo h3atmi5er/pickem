@@ -1,22 +1,9 @@
+// lib/picks_screen.dart
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'nfl_teams.dart';
-
-class PicksScreen extends StatefulWidget {
-  const PicksScreen({super.key});
-  @override
-  State<PicksScreen> createState() => _PicksScreenState();
-}
+// ... other imports
 
 class _PicksScreenState extends State<PicksScreen> {
-  Map<String, String> _userPicks = {};
-  bool _isLoading = true;
-  List<DropdownMenuItem<String>> _weekMenuItems = [];
-  String? _selectedWeekId;
-
-  final String? _userId = FirebaseAuth.instance.currentUser?.uid;
-  final String? _userEmail = FirebaseAuth.instance.currentUser?.email;
+  // ... (state variables are unchanged)
 
   @override
   void initState() {
@@ -25,149 +12,56 @@ class _PicksScreenState extends State<PicksScreen> {
   }
 
   Future<void> _loadAvailableWeeks() async {
-    setState(() => _isLoading = true);
-    try {
-      final snapshot = await FirebaseFirestore.instance.collection('matches').get();
-      if (snapshot.docs.isEmpty) {
-        if (mounted) setState(() => _isLoading = false);
-        return;
-      }
-      final weeks = snapshot.docs.map((doc) {
-        final weekName = (doc.data())['weekName'] ?? 'Unnamed Week';
-        return DropdownMenuItem<String>(
-          value: doc.id,
-          child: Text(weekName),
-        );
-      }).toList();
-
-      weeks.sort((a, b) {
-        final weekNumA = int.tryParse(a.value!.replaceAll('week_', '')) ?? 0;
-        final weekNumB = int.tryParse(b.value!.replaceAll('week_', '')) ?? 0;
-        return weekNumA.compareTo(weekNumB);
-      });
-
-      if (mounted) {
-        setState(() {
-          _weekMenuItems = weeks;
-          _selectedWeekId = weeks.first.value;
-        });
-      }
-      if (_selectedWeekId != null) {
-        await _loadUserPicksForWeek(_selectedWeekId!);
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error loading weeks: $e')),
-      );
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
+    // ... (function is unchanged)
+  }
+  
+  void _setSelectedWeek(String compositeId) {
+    // ... (function is unchanged)
   }
 
   Future<void> _loadUserPicksForWeek(String weekId) async {
-    setState(() => _isLoading = true);
-    _userPicks = {};
-    try {
-      if (_userId != null) {
-        final picksDoc = await FirebaseFirestore.instance.collection('picks').doc(_userId).get();
-        if (picksDoc.exists && picksDoc.data()!.containsKey(weekId)) {
-          if (mounted) {
-            setState(() => _userPicks = Map<String, String>.from(picksDoc.data()![weekId]));
-          }
-        }
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error loading picks: $e')),
-      );
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
+    // ... (function is unchanged)
   }
 
   Future<void> _savePicks() async {
-    if (_userId == null || _selectedWeekId == null) return;
-    await FirebaseFirestore.instance.collection('picks').doc(_userId).set({
-      'displayName': _userEmail,
-      _selectedWeekId!: _userPicks,
-    }, SetOptions(merge: true));
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Picks saved!'), backgroundColor: Colors.green));
-      Navigator.of(context).pop();
-    }
+    // ... (function is unchanged)
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-    if (_selectedWeekId == null) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Make Your Picks')),
-        body: const Center(child: Text('No weeks have been created by the admin yet.'))
-      );
-    }
+    // ... (initial loading and error views are unchanged)
 
     return StreamBuilder<DocumentSnapshot>(
-      stream: FirebaseFirestore.instance.collection('matches').doc(_selectedWeekId!).snapshots(),
+      stream: FirebaseFirestore.instance.collection(_selectedCollection).doc(_selectedDocId!).snapshots(),
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(body: Center(child: CircularProgressIndicator()));
-        }
-        if (!snapshot.hasData || !snapshot.data!.exists) {
-          return Scaffold(appBar: AppBar(title: const Text('Error')), body: const Center(child: Text('This week could not be found.')));
-        }
+        // ... (snapshot error handling is unchanged)
 
         final matchData = snapshot.data!.data() as Map<String, dynamic>;
         final games = List<Map<String, dynamic>>.from(matchData['games'] ?? []);
-        final isLocked = matchData['isLocked'] ?? true;
+        
+        // NEW, SIMPLER LOGIC FOR WHETHER PICKS CAN BE MADE
+        final bool canMakePicks = _selectedCollection == 'matches';
 
         return Scaffold(
           appBar: AppBar(
-            title: const Text('Make Your Picks'),
-            actions: [
-              if (_weekMenuItems.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12.0),
-                  child: DropdownButton<String>(
-                    value: _selectedWeekId,
-                    items: _weekMenuItems,
-                    onChanged: (newWeekId) {
-                      if (newWeekId != null) {
-                        setState(() => _selectedWeekId = newWeekId);
-                        _loadUserPicksForWeek(newWeekId);
-                      }
-                    },
-                    dropdownColor: Colors.blueGrey[800],
-                    style: const TextStyle(color: Colors.white, fontSize: 16),
-                    underline: Container(),
-                    icon: const Icon(Icons.arrow_drop_down, color: Colors.white),
-                  ),
-                ),
-            ],
+            // ... (app bar is unchanged)
           ),
-          floatingActionButton: (_userPicks.isNotEmpty && !isLocked)
+          // MODIFIED FLOATING ACTION BUTTON LOGIC
+          floatingActionButton: (_userPicks.isNotEmpty && canMakePicks)
               ? FloatingActionButton.extended(
                   onPressed: _savePicks,
                   label: const Text('Save Picks'),
                   icon: const Icon(Icons.save),
                 )
               : null,
-          body: (isLocked && _userPicks.isEmpty)
-              ? const Center(
-                  child: Text('Picks for this week are locked!',
-                      style: TextStyle(fontSize: 20, color: Colors.red)),
-                )
-              : games.isEmpty
-                  ? const Center(child: Text('The admin has not added any matches for this week yet.'))
+          body: games.isEmpty
+                  ? const Center(child: Text('No matches have been added for this week yet.'))
                   : ListView.builder(
                       itemCount: games.length,
                       itemBuilder: (context, index) {
                         final game = games[index];
-                        return _buildGameCard(game, isLocked);
+                        // Pass the simplified boolean down
+                        return _buildGameCard(game, canMakePicks);
                       },
                     ),
         );
@@ -175,32 +69,40 @@ class _PicksScreenState extends State<PicksScreen> {
     );
   }
 
-  Widget _buildGameCard(Map<String, dynamic> game, bool isLocked) {
+  // MODIFIED to accept canMakePicks
+  Widget _buildGameCard(Map<String, dynamic> game, bool canMakePicks) {
     final gameId = game['gameId'];
-    final selectedWinner = _userPicks[gameId];
+    final userPick = _userPicks[gameId];
+    final actualWinner = game['winner'];
+
+    Color getBorderColor(String teamName) {
+      // ... (this function is unchanged)
+    }
+
     return Card(
       margin: const EdgeInsets.all(12),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            Text('Game ${gameId.replaceAll('game', '')}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 10),
+            // ... (VS text is unchanged)
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
                 _buildTeamIcon(
                   teamName: game['team1Name'],
-                  isSelected: selectedWinner == game['team1Name'],
+                  borderColor: getBorderColor(game['team1Name']),
                   onTap: () => setState(() => _userPicks[gameId] = game['team1Name']),
-                  isLocked: isLocked,
+                  // Use the new boolean here
+                  canMakePicks: canMakePicks,
                 ),
                 const Text('VS', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                 _buildTeamIcon(
                   teamName: game['team2Name'],
-                  isSelected: selectedWinner == game['team2Name'],
+                  borderColor: getBorderColor(game['team2Name']),
                   onTap: () => setState(() => _userPicks[gameId] = game['team2Name']),
-                  isLocked: isLocked,
+                  // And here
+                  canMakePicks: canMakePicks,
                 ),
               ],
             ),
@@ -210,47 +112,20 @@ class _PicksScreenState extends State<PicksScreen> {
     );
   }
 
+  // MODIFIED to accept canMakePicks
   Widget _buildTeamIcon({
     required String teamName,
-    required bool isSelected,
+    required Color borderColor,
     required VoidCallback onTap,
-    required bool isLocked,
+    required bool canMakePicks,
   }) {
     final team = nflTeamsMap[teamName];
     final logoAssetPath = team?.logoAssetPath;
     return GestureDetector(
-      onTap: isLocked ? null : onTap,
+      // Tapping is disabled if canMakePicks is false
+      onTap: canMakePicks ? onTap : null,
       child: Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          border: Border.all(
-              color: isSelected ? Colors.green : Colors.transparent, width: 4),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          children: [
-            if (logoAssetPath != null)
-              Image.asset(
-                logoAssetPath,
-                height: 70,
-                width: 70,
-                errorBuilder: (context, error, stackTrace) {
-                  return const Icon(Icons.sports_football, color: Colors.grey, size: 70);
-                },
-              )
-            else
-              const Icon(Icons.sports_football, color: Colors.grey, size: 70),
-            const SizedBox(height: 4),
-            SizedBox(
-              width: 100,
-              child: Text(
-                teamName,
-                textAlign: TextAlign.center,
-                maxLines: 2,
-              ),
-            ),
-          ],
-        ),
+        // ... (rest of the widget is unchanged)
       ),
     );
   }

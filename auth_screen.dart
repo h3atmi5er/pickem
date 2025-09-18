@@ -1,3 +1,4 @@
+// lib/auth_screen.dart
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -21,9 +22,10 @@ class _AuthScreenState extends State<AuthScreen> {
         password: _passwordController.text,
       );
       if (userCredential.user != null) {
-        await _createUserDocument(userCredential.user!);
+        await _createUserDocument(userCredential.user!, isGoogleSignIn: false);
       }
     } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed to sign up: ${e.message}')),
       );
@@ -37,6 +39,7 @@ class _AuthScreenState extends State<AuthScreen> {
         password: _passwordController.text,
       );
     } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed to log in: ${e.message}')),
       );
@@ -59,36 +62,40 @@ class _AuthScreenState extends State<AuthScreen> {
           await FirebaseAuth.instance.signInWithCredential(credential);
 
       if (userCredential.user != null) {
-        await _createUserDocument(userCredential.user!);
+        await _createUserDocument(userCredential.user!, isGoogleSignIn: true);
       }
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed to sign in with Google: $e')),
       );
     }
   }
 
-  Future<void> _signOut() async {
-    await GoogleSignIn().signOut();
-    await FirebaseAuth.instance.signOut();
-  }
-
-  Future<void> _createUserDocument(User user) async {
+  // MODIFIED to initialize win/loss record
+  Future<void> _createUserDocument(User user, {bool isGoogleSignIn = false}) async {
     final userDocRef =
         FirebaseFirestore.instance.collection('users').doc(user.uid);
     final doc = await userDocRef.get();
 
     if (!doc.exists) {
+      final initialDisplayName = isGoogleSignIn ? '' : user.email?.split('@')[0];
       userDocRef.set({
         'email': user.email,
-        'displayName': user.displayName,
+        'displayName': initialDisplayName,
         'role': 'user',
         'createdAt': FieldValue.serverTimestamp(),
+        'displayNameSet': !isGoogleSignIn,
+        'totalWins': 0,   // Add this
+        'totalLosses': 0, // Add this
       });
+      if (!isGoogleSignIn) {
+        await user.updateDisplayName(initialDisplayName);
+      }
     }
   }
 
-
+  // ... rest of the file is unchanged
   @override
   Widget build(BuildContext context) {
     return Scaffold(
